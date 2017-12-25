@@ -26,13 +26,13 @@ update::update()
 	child_pid = child.fd = parent = 0;
 }
 
-bool update::forkAndGo(char *site)
+bool update::forkAndGo(char *site, const char *idpw, bool silent)
 {
 	//already updating
 	if(child.fd)
 	{
-		net.send(HAS_N, "[*] Already updating", NULL);
-		net.send(HAS_B, "[*] To stop update issue .stopupdate <bot> command", NULL);
+		net.send(HAS_N, "[*] Already updating");
+		net.send(HAS_B, "[*] To stop update: .bc %s stopupdate", (const char*) config.handle);
 		return false;
 	}
 
@@ -42,7 +42,7 @@ bool update::forkAndGo(char *site)
 	//pipe faild
 	if(pipe(tmp))
 	{
-		net.send(HAS_N, "[-] pipe() failed: ", strerror(errno), NULL);
+		net.send(HAS_N, "[-] pipe() failed: %s", strerror(errno));
 		end();
 		return false;
 	}
@@ -54,7 +54,7 @@ bool update::forkAndGo(char *site)
 	switch(pid)
 	{
 		case -1:
-			net.send(HAS_N, "[-] fork() failed: ", strerror(errno), NULL);
+			net.send(HAS_N, "[-] fork() failed: %s", strerror(errno));
 			end();
 			return false;
 
@@ -63,9 +63,9 @@ bool update::forkAndGo(char *site)
 			{
 				child_pid = getpid();
 				//redirect
-				dup2(parent, fileno(stdout));
-				dup2(parent, fileno(stderr));
-				if(doUpdate(site))
+				//dup2(parent, fileno(stdout));
+				//dup2(parent, fileno(stderr));
+				if(doUpdate(site, idpw, silent))
 				{
 					sleep(1);
 					kill(pid, SIGUSR1); //that should restart parent;
@@ -94,10 +94,10 @@ void update::end()
 	child_pid = child.fd = parent = 0;
 }
 
-bool update::doUpdate(const char *site)
+bool update::doUpdate(const char *site, const char *idpw, bool silent)
 {
 	int n;
-	char buf[MAX_LEN];
+	char buf[MAX_LEN], sendbuf[MAX_LEN];
 	char updir[MAX_LEN], dir[MAX_LEN];
 
 	http php, file;
@@ -106,13 +106,19 @@ bool update::doUpdate(const char *site)
 	memset(buf, 0, sizeof(buf));
 	memset(updir, 0, sizeof(updir));
 	memset(dir, 0, sizeof(dir));
+	php.sendInfo=true;
 
 	setvbuf(stdout, NULL, _IONBF, 0);
 	setvbuf(stderr, NULL, _IONBF, 0);
         setvbuf(stdin, NULL, _IONBF, 0);
 
-	http::url updateSite((site && *site) ? site : "http://polibuda.info/~grusin/update.php");
-	printf("[*] Connecting to http://%s\n", updateSite.host);
+	http::url updateSite((site && *site) ? site : "http://updates.psotnic.com/");
+
+	if(!silent)
+	{
+		snprintf(sendbuf, MAX_LEN, "[*] Connecting to http://%s\n", updateSite.host);
+		write(parent, sendbuf, strlen(sendbuf));
+	}
 
 	//get link to the newest version
 	if((n = php.get(updateSite)) > 0)
@@ -120,29 +126,59 @@ bool update::doUpdate(const char *site)
 		http::url link(php.data);
 
 		//DEBUG(printf("[D] php.data = %s; n = %d\n", php.data, n));
+		if(match("You already use the newest version", php.data))
+		{
+			if(!silent)
+			{
+				snprintf(sendbuf, MAX_LEN, "[-] I already use the newest version\n");
+				write(parent, sendbuf, strlen(sendbuf));
+			}
+
+			return false;
+		}
 
 		if(link.ok() && match("*.tar.gz", link.file) && strlen(link.file) < MAX_LEN)
 		{
-			printf("[+] The newest version is: %s, downloading (this may take a while)\n", link.file);
+			if(!silent)
+			{
+				snprintf(sendbuf, MAX_LEN, "[+] The newest version is: %s, downloading (this may take a while)\n", link.file);
+				write(parent, sendbuf, strlen(sendbuf));
+			}
+
 			snprintf(updir, 256, ".update-%d", (int) getpid());
 
 			if(mkdir(updir, 0700))
 			{
-				printf("[-] Cannot create update directory: %s\n", strerror(errno));
+				if(!silent)
+				{
+					snprintf(sendbuf, MAX_LEN, "[-] Cannot create update directory: %s\n", strerror(errno));
+					write(parent, sendbuf, strlen(sendbuf));
+				}
+
 				return false;
 			}
 
 			if(chdir(updir))
 			{
-				printf("[-] Cannot change directory to %s: %s\n", updir, strerror(errno));
+				if(!silent)
+				{
+					snprintf(sendbuf, MAX_LEN, "[-] Cannot change directory to %s: %s\n", updir, strerror(errno));
+					write(parent, sendbuf, strlen(sendbuf));
+				}
+
 				return false;
 			}
 
-//			return false;
+			if(idpw)
+				file.setAuth(idpw);
+
 			if((n = file.get(link, link.file)) > 0)
 			{
-				//return false;
-				printf("[+] Unpacking\n");
+				if(!silent)
+				{
+					snprintf(sendbuf, MAX_LEN, "[+] Unpacking\n");
+					write(parent, sendbuf, strlen(sendbuf));
+				}
 
 				int len = strlen(link.file) - 7;
 
@@ -153,7 +189,7 @@ bool update::doUpdate(const char *site)
 				if(system(buf))
 					goto dupa;
 
-				printf("[+] Restoring seeds (creating seed.h)\n");
+				//printf("[+] Restoring seeds (creating seed.h)\n");
 				FILE *f = fopen("seed.h", "w+");
 				if(!f)
 					goto dupa;
@@ -180,10 +216,8 @@ bool update::doUpdate(const char *site)
 				if(fclose(f))
 					goto dupa;
 
-				strcpy(buf, "./configure");
-#ifdef HAVE_SSL
-				strcat(buf, " --with-ssl");
-#endif
+				snprintf(buf, MAX_LEN, "./configure --prefix=%s", INSTALL_PREFIX);
+
 #ifdef HAVE_ANTIPTRACE
 				strcat(buf, " --with-antiptrace");
 #endif
@@ -192,64 +226,112 @@ bool update::doUpdate(const char *site)
 				strcat(buf, " --with-firedns");
 #endif
 
+#ifndef HAVE_ADNS
+				strcat(buf, " --disable-adns");
+#endif
+
+#ifndef HAVE_MODULES
+				strcat(buf, " --disable-modules");
+#endif
+
 				if(system(buf))
 					goto dupa;
 
-				printf("[*] Compiling (this may take a longer while)\n");
+				if(!silent)
+				{
+					snprintf(sendbuf, MAX_LEN, "[*] Compiling (this may take a longer while)\n");
+					write(parent, sendbuf, strlen(sendbuf));
+				}
 
 #ifdef HAVE_DEBUG
-	if(system("make debug"))
+				if(system("make debug"))
 #else
-	#ifdef HAVE_STATIC
-			if(system("make static"))
-	#else
-			if(system("make dynamic"))
-	#endif
+				if(system("make"))
 #endif
 					goto dupa;
 
-				printf("[*] Copying files\n");
-#ifdef HAVE_CYGWIN
-				if(rename("bin/psotnic.exe", "../psotnic.exe"))
-#else
-				if(rename("bin/psotnic", "../psotnic"))
-#endif
+				if(!silent)
+				{
+					snprintf(sendbuf, MAX_LEN, "[*] Copying files\n");
+					write(parent, sendbuf, strlen(sendbuf));
+				}
+
+				if(system("make install_bin install_includes"))
 					goto dupa;
 
-				printf("[*] Cleaning up\n");
+				if(!silent)
+				{
+					snprintf(sendbuf, MAX_LEN, "[*] Cleaning up\n");
+					write(parent, sendbuf, strlen(sendbuf));
+				}
 
 				if(chdir("..") || rmdirext(updir))
 				{
-					printf("[-] Failed to remove %s: %s\n", updir, strerror(errno));
+					if(!silent)
+					{
+						snprintf(sendbuf, MAX_LEN, "[-] Failed to remove %s: %s\n", updir, strerror(errno));
+						write(parent, sendbuf, strlen(sendbuf));
+					}
+
 					return false;
 				}
 
-				printf("[+] We are ready to rock'n'roll ;-)\n");
+				if(!silent)
+				{
+					snprintf(sendbuf, MAX_LEN, "[+] Update successful\n");
+					write(parent, sendbuf, strlen(sendbuf));
+				}
 
 				return true;
 			}
 			else
 			{
-				printf("[-] Unable to download file: %s\n", file.error(n));
-				dupa:
-				printf("[-] Error occured during last operation: %s\n", strerror(errno));
+				if(!silent)
+				{
+					snprintf(sendbuf, MAX_LEN, "[-] Unable to download file: %s\n", file.error(n));
+					write(parent, sendbuf, strlen(sendbuf));
+				}
 
-				printf("[*] Cleaning up after a failure\n");
+				dupa:
+				if(!silent)
+				{
+					snprintf(sendbuf, MAX_LEN, "[-] Error occured during last operation: %s\n", strerror(errno));
+					write(parent, sendbuf, strlen(sendbuf));
+					snprintf(sendbuf, MAX_LEN, "[*] Cleaning up after a failure\n");
+					write(parent, sendbuf, strlen(sendbuf));
+				}
+
 				if(chdir("..") || rmdirext(updir))
-					printf("[-] Failed to remove %s: %s\n", updir, strerror(errno));
+				{
+					if(!silent)
+					{
+						snprintf(sendbuf, MAX_LEN, "[-] Failed to remove %s: %s\n", updir, strerror(errno));
+						write(parent, sendbuf, strlen(sendbuf));
+					}
+				}
 
 				return false;
 			}
 		}
 		else
 		{
-			printf("[-] Invalid response (%s)\n", php.data);
+			if(!silent)
+			{
+				snprintf(sendbuf, MAX_LEN, "[-] Invalid response (%s)\n", php.data);
+				write(parent, sendbuf, strlen(sendbuf));
+			}
+
 			return false;
 		}
 	}
 	else
 	{
-		printf("[-] Error occured: %s\n", php.error(n));
+		if(!silent)
+		{
+			snprintf(sendbuf, MAX_LEN, "[-] Error occured: %s\n", php.error(n));
+			write(parent, sendbuf, strlen(sendbuf));
+		}
+
 		return false;
 	}
 }

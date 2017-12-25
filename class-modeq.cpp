@@ -20,6 +20,7 @@
 
 #include "prots.h"
 #include "global-var.h"
+#include <algorithm>
 
 /*
 ** Mode queue
@@ -29,6 +30,7 @@ modeq::modeq(chan *channel)
 {
 	ch = channel;
 	data.removePtrs();
+	sent.removePtrs();
 }
 
 modeq::modeq_ent *modeq::add(time_t exp, const char *m, const char *a)
@@ -39,22 +41,25 @@ modeq::modeq_ent *modeq::add(time_t exp, const char *m, const char *a)
 	return x;
 }
 
+modeq::modeq_ent *modeq::addBackup(time_t exp, const char *m, const char *a)
+{
+        DEBUG(printf(">>> modeq.addBackup(%d, %s, %s)\n", int(exp-NOW), m, a));
+        modeq_ent *x = new modeq_ent(exp, m, a);
+	x->backupmode = true;
+        data.add(x);
+        return x;
+}
+
 void modeq::setChannel(chan *channel)
 {
 	ch = channel;
 }
 
-#define	isModeNonArgModeValid(flag)		\
-		if(ch->flags & flag)		\
-			return 0;		\
-		++n;				\
-		ch->flags |= flag;		\
-		return 1;
-
 int modeq::validate(modeq_ent *e, int &a, int &n)
 {
 	chanuser *u;
 	masklist_ent *m;
+	char type=chan::getTypeOfChanMode(e->mode[1]);
 
 	if(e->reject == true)
 	{
@@ -90,15 +95,22 @@ int modeq::validate(modeq_ent *e, int &a, int &n)
 				else return 0;
 			case 'k':
 				if(a == 3) return -1;
-				if(!ch->key || !*ch->key)
+				if(ch->key() && !strcmp(ch->key(), e->arg))
+				{
+					return 0;
+				}
+				/*if(!ch->key() || !*ch->key())
 				{
 					++a;
 					return 1;
 				}
 				else return 0;
+				*/
+				++a;
+				return 1; // FIXME: doesnt work on qnet
 			case 'l':
 				if(a == 3) return -1;
-				if(e->arg && ch->limit != atoi(e->arg))
+				if(e->arg && ch->limit() != atoi(e->arg))
 				{
 					++a;
 					return 1;
@@ -144,20 +156,14 @@ int modeq::validate(modeq_ent *e, int &a, int &n)
 			//no arg modes:
 			default:
 				if(n == 5) return -1;
-				if(!ch->hasFlag(e->mode[1]))
+				if(!ch->hasFlag(e->mode[1]) || type == 'B')
 				{
-					switch(e->mode[1])
-					{
-						case 'i': isModeNonArgModeValid(SENT_I);
-						case 'n': isModeNonArgModeValid(SENT_N);
-						case 's': isModeNonArgModeValid(SENT_S);
-						case 'm': isModeNonArgModeValid(SENT_M);
-						case 't': isModeNonArgModeValid(SENT_T);
-						case 'r': isModeNonArgModeValid(SENT_R);
-						case 'p': isModeNonArgModeValid(SENT_P);
-						case 'q': isModeNonArgModeValid(SENT_Q);
-						default: return 0;
-					}
+					if(ch->sentModes.find(e->mode, e->arg) != 0)
+						return 0;
+
+					++n;
+					ch->sentModes.add(e->mode, e->arg);
+					return 1;
 				}
 				else return 0;
 		}
@@ -215,7 +221,7 @@ int modeq::validate(modeq_ent *e, int &a, int &n)
 				else return 0;
 			case 'k':
 				if(a == 3) return -1;
-				if(ch->key && *ch->key && !strcmp(e->arg, ch->key))
+				if(ch->key() && *ch->key() && !strcmp(e->arg, ch->key()))
 				{
 					++a;
 					return 1;
@@ -223,10 +229,10 @@ int modeq::validate(modeq_ent *e, int &a, int &n)
 				else return 0;
 			case 'l':
 				if(n == 5) return -1;
-				if(ch->limit && !(ch->flags & SENT_MINUS_L))
+				if(ch->limit() && !find_sent(e->mode, e->arg))
 				{
 					++n;
-					ch->flags |= SENT_MINUS_L;
+					add_sent(e->mode);
 					return 1;
 				}
 				else return 0;
@@ -235,18 +241,12 @@ int modeq::validate(modeq_ent *e, int &a, int &n)
 				if(n == 5) return -1;
 				if(ch->hasFlag(e->mode[1]))
 				{
-					switch(e->mode[1])
-					{
-						case 'i': isModeNonArgModeValid(SENT_MINUS_I);
-						case 'n': isModeNonArgModeValid(SENT_MINUS_N);
-						case 's': isModeNonArgModeValid(SENT_MINUS_S);
-						case 'm': isModeNonArgModeValid(SENT_MINUS_M);
-						case 't': isModeNonArgModeValid(SENT_MINUS_T);
-						case 'r': isModeNonArgModeValid(SENT_MINUS_R);
-						case 'p': isModeNonArgModeValid(SENT_MINUS_P);
-						case 'q': isModeNonArgModeValid(SENT_MINUS_Q);
-						default: return 0;
-					}
+                                        if(find_sent(e->mode, e->arg) != 0)
+                                                return 0;
+
+                                        ++n;
+                                        add_sent(e->mode, e->arg);
+                                        return 1;
 				}
 				else return 0;
 		}
@@ -293,6 +293,9 @@ int modeq::flush(int prio)
 			{
 				ex = e;
 				ex++;
+
+				if(num >= 8)
+					break;
 
 				switch(validate(e, a, n))
 				{
@@ -343,7 +346,7 @@ int modeq::flush(int prio)
 			}
 		}
 
-		net.irc.send("MODE ", (const char *) ch->name, " ", modes.data, " ", args.data, NULL);
+		net.irc.send("MODE %s %s %s", (const char *) ch->name,  modes.data, args.data);
 		penalty += 3*num + 1;
 		for(i=0; i<num; ++i)
 		{
@@ -430,4 +433,66 @@ modeq::modeq_ent *modeq::find(const char *mode, const char *arg)
 	}
 
 	return 0;
+}
+
+#ifdef HAVE_DEBUG
+void modeq::display()
+{
+        grouplist<modeq_ent>::iterator g = data.begin();
+        ptrlist<modeq_ent>::iterator e;
+
+        while(g)
+        {
+                e = g->begin();
+
+                while(e)
+                {
+			printf("%s %s\n", e->mode, e->arg);
+                        e++;
+                }
+
+                g++;
+        }
+}
+#endif
+
+void modeq::add_sent(const char *m, const char *a)
+{
+        modeq_ent *x = new modeq_ent(0, m, a);
+        sent.add(x);
+}
+
+modeq::modeq_ent *modeq::find_sent(const char *mode, const char *arg)
+{
+        grouplist<modeq_ent>::iterator g = sent.begin();
+        ptrlist<modeq_ent>::iterator e;
+
+        if(!mode || *mode == '\0')
+		return 0;
+
+        while(g)
+        {
+                e = g->begin();
+
+                while(e)
+                {
+                        if(!strncmp(e->mode, mode, 2))
+                        {
+                            if(e->arg && arg)
+                            {
+                                if(!strcmp(e->arg, arg))
+                                    return e;
+                            }
+
+                            else
+                                return e;
+                        }
+
+                        e++;
+                }
+
+                g++;
+        }
+
+        return 0;
 }

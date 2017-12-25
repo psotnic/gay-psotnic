@@ -30,31 +30,33 @@ void sigChild()
 void sigTerm()
 {
 	signal(SIGTERM, SIG_IGN);
-	if(net.irc.fd > 0) net.irc.send("QUIT :", (const char *) config.quitreason, NULL);
-	net.send(HAS_N, "[!] Got termination signal", NULL);
+	ME.quit();
+	net.send(HAS_N, "\002Got termination signal\002");
 	stopPsotnic = 1;
 }
 
 void sigInt()
 {
 	signal(SIGINT, SIG_IGN);
-	if(net.irc.fd > 0) net.irc.send("QUIT :", (const char *) config.quitreason, NULL);
-	net.send(HAS_N, "[!] Terminated by user", NULL);
+	ME.quit();
+	net.send(HAS_N, "\002Terminated by user\002");
 	stopPsotnic = 1;
 }
 
 void sigHup()
 {
 	userlist.save(config.userlist_file);
+//#ifdef HAVE_ADNS
+//	resolver->clearCache();
+//#endif
 	HOOK(receivedSigHup, receivedSigHup());
 }
 
 void sigSegv()
 {
 	signal(SIGSEGV, SIG_IGN);
-	
-	net.send(HAS_N, "[!] Got segmentation fault signal; please report this crash", NULL);
-	net.irc.send("QUIT :Got segmentation fault signal; please report this crash", NULL);
+	net.send(HAS_N, "\002\0030,4Got segmentation fault signal; please report this crash\003\002");
+	ME.quit();
 	
 #ifdef HAVE_DEBUG
 	char gdb[MAX_LEN], cmdlist[256], btfile[256];
@@ -94,14 +96,14 @@ void sigSegv()
 
 void safeExit()
 {
-	net.send(HAS_N, "[*] Abnormal program termination", NULL);
+	net.send(HAS_N, "Abnormal program termination");
 	stopPsotnic = 1;
 }
 
 void sigCpuTime()
 {
-	net.send(HAS_N, "[*] Cpu time limit reached, terminating", NULL);
-	if(net.irc.fd > 0) net.irc.send("QUIT :Cpu time limit reached, terminating", NULL);	
+	net.send(HAS_N, "\002\0030,4Cpu time limit reached, terminating\003\002");
+	ME.quit();
 	stopPsotnic = 1;
 }
 
@@ -117,6 +119,9 @@ void sigUpdated()
 	psotget.end();
 #ifdef RESTART_AFTER_UPDATE
 	ME.restart();
+#else
+	updateNotify=true;
+	net.send(HAS_N, "I have been updated and need to be restarted");
 #endif
 }
 

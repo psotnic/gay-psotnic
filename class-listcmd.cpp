@@ -32,43 +32,13 @@ int listcmd(char what, const char *from, const char *arg1, const char *arg2, ine
 
 	switch(what)
 	{
-		//remote
-		case 'a':
-		{
-			if(!config.ctcptype)
-			{
-				net.sendOwner(from, "[a] N/A", NULL);
-				return 1;
-			}
-			char buf[MAX_LEN];
-			char elapsed[MAX_LEN], remaining[MAX_LEN];
-
-			int2units(elapsed, MAX_LEN, antiidle.getET(), ut_time);
-			int2units(remaining, MAX_LEN, antiidle.getRT(), ut_time);
-
-			if(antiidle.away)
-			{
-				snprintf(buf, MAX_LEN, "[a] away: on, elapsed: %s, remaining: %s",
-					elapsed, remaining);
-			}
-			else
-			{
-				char next[MAX_LEN];
-				int2units(next, MAX_LEN, int(antiidle.nextMsg - NOW), ut_time);
-				snprintf(buf, MAX_LEN, "[a] away: off, elapsed: %s, remaining: %s, nextmsg: %s",
-					elapsed, remaining, next);
-			}
-			net.sendOwner(from, buf, NULL);
-			return 1;
-		}
 		//local and remote :)
 		case 'p':
 		{
 			//owner orders hub to ping bots
 			if(!c)
 			{
-				net.propagate(NULL, S_LIST, " p ", from, " ", itoa(NOW), " ",
-						itoa(nanotime()), NULL);
+				net.propagate(NULL, "%s p %s %s %s", S_LIST, from, itoa(NOW), itoa(nanotime()));
 			}
 			else
 			{
@@ -84,17 +54,17 @@ int listcmd(char what, const char *from, const char *arg1, const char *arg2, ine
 					else
 						snprintf(buf, MAX_LEN, "%.3f", float(NOW - T -1) + float(((1e6 - N + NANO)/1e6)));
 
-					net.sendOwner(from, "[p] reply from ", c->handle->name, " in: ", buf, " secs", NULL);
+					net.sendUser(from, "[p] reply from %s in %s secs", c->handle->name, buf);
 				}
 				else
 				{
 					if(c->isMain())
-						c->send(S_LIST, " p ", from, " ", arg1, " ", arg2, NULL);
+						c->send("%s %s %s %s %s", S_LIST, " p ", from, arg1, arg2);
 					else
 					{
 						for(i=0; i<net.max_conns; ++i)
 							if(net.conn[i].isMain())
-								net.conn[i].send(S_LIST, " p ", from, " ", arg1, " ", arg2, NULL);
+								net.conn[i].send("%s %s %s %s %s", S_LIST, " p ", from, arg1, arg2);
 					}
 				}
 			}
@@ -120,13 +90,13 @@ int listcmd(char what, const char *from, const char *arg1, const char *arg2, ine
 					str += " ";
 				}
 			}
-			net.sendOwner(from, (const char *) str, NULL);
+			net.sendUser(from, "%s", (const char *) str);
 			return 1;
 		}
 		//remote
 		case 'v':
 		{
-			net.sendOwner(from, "[v] version: ", S_VERSION, "; SVN rev: ", SVN_REVISION, NULL);
+			net.sendUser(from, "[v] %s version: %s ; SVN rev: %s", S_BOTNAME, S_VERSION, SVN_REVISION);
 			return 1;
 		}
 
@@ -139,35 +109,25 @@ int listcmd(char what, const char *from, const char *arg1, const char *arg2, ine
 			int2units(buf, MAX_LEN, int(NOW - ME.startedAt), ut_time);
 
 			if(getrusage(RUSAGE_SELF, &r))
-				net.sendOwner(from, "[U] up for\002:\002 ", buf, ", usr\002:\002 n/a, sys\002:\002 n/a, mem\002:\002 n/a", NULL);
+				net.sendUser(from, "[U] up for: %s n/a, sys: n/a, mem: n/a", buf);
 			else
 			{
 				int2units(buf, MAX_LEN, int(NOW - ME.startedAt), ut_time);
-				net.sendOwner(from, "[U] up for\002:\002 ", buf,
-					", usr: ", itoa(r.ru_utime.tv_sec), ".", itoa(r.ru_utime.tv_usec / 10000), "s",
-					", sys: ", itoa(r.ru_stime.tv_sec), ".", itoa(r.ru_stime.tv_usec / 10000), "s", NULL);
+				net.sendUser(from, "[U] up for: %s, usr: %s.%ss, sys: %s.%ss", buf,
+					itoa(r.ru_utime.tv_sec), itoa(r.ru_utime.tv_usec / 10000),
+					itoa(r.ru_stime.tv_sec), itoa(r.ru_stime.tv_usec / 10000));
 					//", mem: ", itoa(r.ru_idrss + r.ru_isrss + r.ru_ixrss), "k", NULL);
 			}
 			return 1;
 		}
 
-		//local
+		//remote
 		case 'd':
 		{
-			if(!strlen(ME.nick))
-				tmp = push(NULL, config.handle, " ", NULL);
+			if(!net.irc.isReg())
+				net.sendUser(from, "[d] not on irc");
 
-			for(i=0; i<net.max_conns; ++i)
-				if(net.conn[i].isRegBot() && (!net.conn[i].name || !*net.conn[i].name))
-					tmp = push(tmp, net.conn[i].handle->name, " ", NULL);
-
-			if(tmp)
-			{
-				net.sendOwner(from, "[d] ", tmp, NULL);
-				free(tmp);
-			}
-			else net.sendOwner(from, "[d] all bots are on irc", NULL);
-			return 0;
+			return 1;
 		}
 		//remote
 		case 'c':
@@ -185,10 +145,10 @@ int listcmd(char what, const char *from, const char *arg1, const char *arg2, ine
 			}
 			if(tmp)
 			{
-				net.sendOwner(from, "[c] ", tmp, NULL);
+				net.sendUser(from, "[c] %s", tmp);
 				free(tmp);
 			}
-			else net.sendOwner(from, "[c] no channels", NULL);
+			else net.sendUser(from, "[c] no channels");
 			return 1;
 		}
 		case 'u':
@@ -196,12 +156,12 @@ int listcmd(char what, const char *from, const char *arg1, const char *arg2, ine
 			struct utsname u;
 			if(!uname(&u))
 			{
-				net.sendOwner(from, "[u] ", u.sysname, " ", u.nodename, " ", u.release, " ",
-						u.version, " ", u.machine, NULL);
+				net.sendUser(from, "[u] %s %s %s %s %s", u.sysname, u.nodename, u.release,
+						u.version, u.machine);
 			}
 			else
 			{
-				net.sendOwner(from, "[u] ", strerror(errno), NULL);
+				net.sendUser(from, "[u] %s", strerror(errno));
 			}
 			return 1;
 		}
@@ -210,13 +170,13 @@ int listcmd(char what, const char *from, const char *arg1, const char *arg2, ine
 			if(net.irc.isReg())
 			{
 				if(userlist.wildFindHost(userlist.me(), ME.mask) != -1)
-					net.sendOwner(from, "[i] connected to ", net.irc.name, " as ", (const char *) ME.mask, NULL);
+					net.sendUser(from, "[i] connected to %s as %s", net.irc.name, (const char *) ME.mask);
 				else
-					net.sendOwner(from, "[i] connected to ", net.irc.name, " as ", (const char *) ME.mask, " (\002not in userlist\002)", NULL);
+					net.sendUser(from, "[i] connected to %s as %s (not in userlist)", net.irc.name, (const char *) ME.mask);
 			}
 			else
 			{
-				net.sendOwner(from, "[i] not on irc", NULL);
+				net.sendUser(from, "[i] not on irc");
 			}
 			return 1;
 		}

@@ -1,6 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2008 by patrick                                         *
- *   patrick@psotnic.com                                                   *
+ *   Copyright (C) 2008 psotnic.com development team                       *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
@@ -105,10 +104,10 @@ void Server::Isupport::reset()
 
 void Server::Isupport::init()
 {
-    const char *p1;
+    char *p1;
     char *p2;
 
-    if(!chan_status_flags && (p1=find("PREFIX")))
+    if(!chan_status_flags && (p1=(char *)find("PREFIX")))
     {
         chan_status_flags=strdup(p1+1);
 
@@ -116,14 +115,14 @@ void Server::Isupport::init()
             *p2='\0';
     }
 
-    if(!chanmodes && (p1=find("CHANMODES")))
+    if(!chanmodes && (p1=(char *)find("CHANMODES")))
         chanmodes=strdup(p1);
 
     if(!maxchannels)
     {
-        if((p1=find("CHANLIMIT")))
+        if((p1=(char *)find("CHANLIMIT")))
         {
-            if((p2=(char *)strchr(p1, ':')))
+            if((p2=strchr(p1, ':')))
             {
                 *p2++;
 
@@ -132,15 +131,15 @@ void Server::Isupport::init()
             }
         }
 
-        else if((p1=find("MAXCHANNELS")))
+        else if((p1=(char *)find("MAXCHANNELS")))
             maxchannels=atoi(p1);
     }
 
     if(!maxlist)
     {
-        if((p1=find("MAXLIST")))
+        if((p1=(char *)find("MAXLIST")))
         {
-            if((p2= (char *) strchr(p1, ':')))
+            if((p2=strchr(p1, ':')))
             {
                 *p2++;
 
@@ -149,7 +148,7 @@ void Server::Isupport::init()
             }
         }
 
-        else if((p1=find("MAXBANS")))
+        else if((p1=(char *)find("MAXBANS")))
             maxlist=atoi(p1);
     }
 
@@ -157,7 +156,7 @@ void Server::Isupport::init()
     max_who_targets=1;
     max_mode_targets=1;
 
-    if((p1=find("TARGMAX")))
+    if((p1=(char *)find("TARGMAX")))
     {
         /* The TARGMAX parameter specifies the maximum number of targets
          * allowable for commands which accept multiple targets.
@@ -212,7 +211,7 @@ void Server::Isupport::init()
     {
         // lame IRCnet check
 
-        p1=find("NETWORK");
+        p1=(char *)find("NETWORK");
 
         if((p1 && !strcasecmp(p1, "ircnet"))
            || match("2.*", server->version))

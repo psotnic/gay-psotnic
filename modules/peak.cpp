@@ -6,8 +6,8 @@
 *                Automatic when new peak in channel                    *
 ********************************************************/
 
-#include "../prots.h"
-#include "../global-var.h"
+#include <prots.h>
+#include <global-var.h>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -53,7 +53,7 @@ line.substr(line.find(":",line.find(chan,0))+1,line.find(";",line.find(chan,0))-
        if (itoa(max) > peak && peak != itoa(0)) {
                
 newfile.replace(newfile.find(chan,0),newfile.find(";",newfile.find(chan,0))-newfile.find(chan,0)+1,data);
-               ME.privmsg(ch->name,say.c_str(),NULL);
+               ME.privmsg(ch->name, "%s", say.c_str());
                fileout.open("peak.data",ios::trunc);
                fileout << newfile;
                fileout.close();
@@ -76,7 +76,7 @@ line.substr(line.find(":",line.find(chan,0))+1,line.find(";",line.find(chan,0))-
                say = chan;
                say += " peak is : ";
                say += peak;
-               ME.privmsg(to,say.c_str(),NULL);
+               ME.privmsg(to, "%s", say.c_str());
         }
 }
 

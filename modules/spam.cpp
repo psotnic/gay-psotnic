@@ -1,6 +1,6 @@
-#include "../prots.h"
-#include "../global-var.h"
-#include "../classes.h"
+#include <prots.h>
+#include <global-var.h>
+#include <classes.h>
 #include <regex.h>
 
 class repeat : public CustomDataObject

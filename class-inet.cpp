@@ -1,6 +1,7 @@
 /***************************************************************************
  *   Copyright (C) 2003-2005 by Grzegorz Rusin                             *
  *   grusin@gmail.com                                                      *
+ *   Copyright (C) 2009-2010 psotnic.com development team                  *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
@@ -60,17 +61,13 @@ inet::inet()
 
 inet::~inet()
 {
+	ptrlist<inet::listen_entry>::iterator le;
+
 	net.hub.close("Going down");
 	net.irc.close("Going down");
-	if(listenfd)
-		killSocket(listenfd);
-	listenfd = 0;
 
-#ifdef HAVE_SSL
-	if(ssl_listenfd)
-		killSocket(ssl_listenfd);
-	ssl_listenfd = 0;
-#endif
+	for(le=net.listeners.begin(); le; le++)
+		killSocket(le->fd);
 
 	for(int i=0; i<max_conns; ++i)
 		conn[i].close("Going down");
@@ -180,8 +177,8 @@ int inet::closeConn(inetconn *c, const char *reason)
 	if ((pos >= 0 && pos < max_conns) || c == &net.hub)
 	{
 		/* close given connection */
-		if(c->isRegBot() && !c->isRedir()) net.propagate(c, S_BQUIT, " ", reason, NULL);
-		DEBUG(printf("kill: %s\n", c->name));
+		if(c->isRegBot() && !c->isRedir()) net.propagate(c, "%s %s", S_BQUIT, reason);
+		DEBUG(printf("kill: %s (%s)\n", c->name, reason));
 		c->_close(reason);
 		if(c != &net.hub) --conns;
 		ret = 1;
@@ -195,7 +192,7 @@ int inet::closeConn(inetconn *c, const char *reason)
 		{
 			if(conn[i].fd == fd)
 			{
-				if(ret) net.propagate(&conn[i], S_BQUIT, " ", reason, NULL);
+				if(ret) net.propagate(&conn[i], "%s %s", S_BQUIT, reason);
 				DEBUG(printf("red kill: %s\n", conn[i].name));
 				conn[i]._close(reason);
 				--conns;
@@ -205,81 +202,30 @@ int inet::closeConn(inetconn *c, const char *reason)
 	return ret;
 }
 
-void inet::sendCmd(const char *from, const char *lst, ...)
-{
-	if(!from) return;
-	va_list ap;
-	int len;
-	int i;
-	char buf[MAX_LEN], *a;
-
-	strftime(buf, MAX_LEN, "[\002%H\002:\002%M\002] ", localtime(&NOW));
-	a = push(NULL, buf, "\002#\002", from, "\002#\002", " ", NULL);
-	va_start(ap, lst);
-	len = va_getlen(ap, lst);
-	va_end(ap);
-	va_start(ap, lst);
-	a = va_push(a, ap, lst, len + 1);
-	va_end(ap);
-
-	for(i=0; i<max_conns; ++i)
-		if(conn[i].fd && conn[i].isRegOwner())
-			conn[i].send(a, NULL);
-	free(a);
-}
-
-
-void inet::sendCmd(inetconn *c, const char *lst, ...)
-{
-	if(!c) return;
-	va_list ap;
-	int i;
-	char buf[MAX_LEN], *a;
-
-	strftime(buf, MAX_LEN, "[\002%H\002:\002%M\002] ", localtime(&NOW));
-	a = push(NULL, buf, "\002#\002", c->name, "\002#\002", " ", NULL);
-	
-	int len;
-	va_start(ap, lst);
-	len = va_getlen(ap, lst);
-	va_end(ap);
-	va_start(ap, lst);
-	a = va_push(a, ap, lst, len + 1);
-	va_end(ap);
-
-	for(i=0; i<max_conns; ++i)
-		if(conn[i].fd && conn[i].isRegOwner())
-			conn[i].send(a, NULL);
-	free(a);
-}
-
 void inet::sendexcept(int excp, int who, const char *lst, ...)
 {
-	va_list ap;
+	va_list list;
 	int i;
+	char buf[MAX_LEN];
+
+	va_start(list, lst);
+	vsnprintf(buf, MAX_LEN, lst, list);
+	va_end(list);
 
 	for(i=0; i<max_conns; ++i)
 	{
 		if(conn[i].fd > 0 && conn[i].status & STATUS_REGISTERED && conn[i].checkFlag(who)
 		 && !(conn[i].status & STATUS_REDIR) && conn[i].fd != excp) 
-		{
-			va_start(ap, lst);
-			conn[i].va_send(ap, lst);
-			va_end(ap);
-		}
+			conn[i].send("%s", buf);
 	}
 	if(hub.fd > 0 && hub.fd != excp && hub.isRegBot()  && hub.checkFlag(who))
-	{
-		va_start(ap, lst);
-		net.hub.va_send(ap, lst);
-		va_end(ap);
-	}
-
+		net.hub.send("%s", buf);
 }
 
 void inet::sendOwner(const char *who, const char *lst, ...)
 {
-	va_list ap;
+	va_list list;
+	char buf[MAX_LEN];
 
 	if(!who) return;
 
@@ -300,66 +246,119 @@ void inet::sendOwner(const char *who, const char *lst, ...)
 			if(userlist.isMain(h))
 			{
 				inetconn *c = findConn(h);
+
 				if(c)
 				{
-					int len;
-					va_start(ap, lst);
-					len = va_getlen(ap, lst);
-					va_end(ap);
-					
-					char *str;
-					
-					va_start(ap, lst);
-					str = va_push(NULL, ap, lst, len + 1);
-					va_end(ap);
-					
-					c->send(S_OREDIR, " ", userlist.first->next->name, " ", who, " ", str, NULL);
-					free(str);
+					va_start(list, lst);
+					vsnprintf(buf, MAX_LEN, lst, list);
+					va_end(list);
+	
+					c->send("%s %s %s %s", S_OREDIR, userlist.first->next->name, who, buf);
 				}
 			}
 			h = h->next;
 		}
 	}
-	else
-	{
+	//else
+	//{
 		for(int i=0; i<max_conns; ++i)
 			if(conn[i].isRegOwner() && match(who, net.conn[i].handle->name))
 			{
-				va_start(ap, lst);
-				conn[i].va_send(ap, lst);
-				va_end(ap);
+				va_start(list, lst);
+				vsnprintf(buf, MAX_LEN, lst, list);
+				va_end(list);
+
+				conn[i].send("%s", buf);
 			}
+	//}
+}
+
+
+/*void inet::sendOwners(int level, const char *lst, ...)
+{
+        va_list list;
+        int i;
+        char buffer[MAX_LEN];
+
+        va_start(list, lst);
+        vsnprintf(buffer, MAX_LEN, lst, list);
+        va_end(list);
+
+        sendOwner("*", "%s", buffer);
+}*/
+
+void inet::sendUser(const char *who, const char *lst, ...)
+{
+	va_list list;
+	char buf[MAX_LEN];
+
+	if(!who) return;
+
+	if(config.bottype != BOT_MAIN)
+	{
+		HANDLE *h;
+
+		if(!userlist.first)
+			return;
+
+		if(!userlist.first->next)
+			return;
+
+		h = userlist.first->next->next;
+
+		while(h)
+		{
+			if(userlist.isMain(h))
+			{
+				inetconn *c = findConn(h);
+
+				if(c)
+				{
+					va_start(list, lst);
+					vsnprintf(buf, MAX_LEN, lst, list);
+					va_end(list);
+	
+					c->send("%s %s %s %s", S_OREDIR, userlist.first->next->name, who, buf);
+				}
+			}
+			h = h->next;
+		}
 	}
+	//else
+	//{
+		for(int i=0; i<max_conns; ++i)
+			if(conn[i].isRegUser() && match(who, net.conn[i].handle->name))
+			{
+				va_start(list, lst);
+				vsnprintf(buf, MAX_LEN, lst, list);
+				va_end(list);
+
+				conn[i].send("%s", buf);
+			}
+	//}
 }
 
 void inet::send(int who, const char *lst, ...)
 {
-	va_list ap;
+	va_list list;
 	int i;
+	char buffer[MAX_LEN];
+
+	va_start(list, lst);
+	vsnprintf(buffer, MAX_LEN, lst, list);
+	va_end(list);
+
+	if(who == HAS_N)
+	{
+		sendOwner("*", "%s", buffer);
+		return;
+	}
 
 	for(i=0; i<max_conns; ++i)
 	{
 		if(conn[i].fd > 0 && conn[i].status & STATUS_REGISTERED && conn[i].checkFlag(who)
 		 && !(conn[i].status & STATUS_REDIR)) 
-		{
-			va_start(ap, lst);
-			conn[i].va_send(ap, lst);
-			va_end(ap);
-		}
-	}
-
-	//owners
-	if(who == HAS_N && config.bottype != BOT_MAIN)
-	{
-		int len;
-		va_start(ap, lst);
-		len = va_getlen(ap, lst);
-		va_end(ap);
-		va_start(ap, lst);
-		char *str = va_push(NULL, ap, lst, len + 1);
-		va_end(ap);
-		sendOwner("*", str, NULL);
-		free(str);
+			conn[i].send("%s", buffer);
 	}
 }
 
@@ -373,35 +372,33 @@ void inet::sendBotListTo(inetconn *c)
 		{
 			if(&conn[i] != c && conn[i].isRegBot())
 			{
-				c->send(S_FORWARD, " ", conn[i].handle->name, " * ",
-					S_BJOIN, " ", conn[i].name, " ", conn[i].origin, NULL);
+				c->send("%s %s %s %s %s %s", S_FORWARD, conn[i].handle->name, " * ",
+					S_BJOIN, conn[i].name, conn[i].origin);
 			}
 		}
 		if(net.hub.fd && c != &net.hub && net.hub.isRegBot())
-			c->send(S_FORWARD, " ", hub.handle->name, " * ",
-					S_BJOIN, " ", hub.name, " ", hub.origin, NULL);
+			c->send("%s %s %s %s %s %s", S_FORWARD, hub.handle->name, " * ",
+					S_BJOIN, hub.name, hub.origin);
 
 	}
 }
 
 void inet::propagate(inetconn *from, const char *str, ...)
 {
-	va_list ap;
-	int len;
-	
-	char *p = push(NULL, S_FORWARD, " ", from ? from->handle->name : (const char *) config.handle, " * ", NULL);
+  char buffer1[MAX_LEN], buffer2[MAX_LEN];
+  va_list list;
 
-	va_start(ap, str);
-	len = va_getlen(ap, str);
-	va_end(ap);
+  if(!str || *str == '\0')
+    return;
 
-	va_start(ap, str);
-	p = va_push(p, ap, str, len + 1);
-	va_end(ap);
+  snprintf(buffer1, MAX_LEN, "%s %s * ", S_FORWARD, from ? from->handle->name : (const char *) config.handle);
 
-	net.sendexcept(from ? from->fd : 0, HAS_B, p, NULL);
-	free(p);
+  va_start(list, str);
+  vsnprintf(buffer2, MAX_LEN, str, list);
+  va_end(list);
 
+  strncat(buffer1, buffer2, sizeof(buffer1) - strlen(buffer1) - 1);
+  net.sendexcept(from ? from->fd : 0, HAS_B, "%s", buffer1);
 }
 
 #ifdef HAVE_DEBUG
@@ -445,6 +442,12 @@ int inet::bidMaxFd(int fd)
 inetconn::inetconn()
 {
 	memset(this, 0, sizeof(inetconn));
+	write.buf = NULL;
+	write.pos = 0;
+	write.len = 0;
+#ifdef HAVE_SSL
+	ssl_buffer = NULL;
+#endif
 }
 
 inetconn::~inetconn()
@@ -475,34 +478,35 @@ void inetconn::_close(const char *reason)
 	{
 		if(this == &net.irc)
 		{
-			if(status & STATUS_REGISTERED)
-			{
-				net.propagate(NULL, S_CHNICK, NULL);
-
-				HOOK(disconnected, disconnected(reason));
-				if(stopParsing)
-					stopParsing=false;
-				else
-					net.send(HAS_N, "[-] Disconnected from server ", net.irc.name, " (", reason, ")", NULL);
-
-			}
-			else if(status & STATUS_KLINED)
+			if(status & STATUS_KLINED)
 			{
 				HOOK(klined, klined(reason));
 				if(stopParsing)
 					stopParsing=false;
+			}
+			else
+			{
+                        	if(status & STATUS_REGISTERED)
+                        	{
+                                	net.propagate(NULL, "%s", S_CHNICK);
+
+                                	HOOK(disconnected, disconnected(reason));
+                                	if(stopParsing)
+                                        	stopParsing=false;
+                                	else
+                                        	net.send(HAS_N, "[-] Disconnected from server %s (%s)", net.irc.name, reason);
+                        	}
 				else
-					net.send(HAS_N, "[-] I am K-lined on ", net.irc.name, " (", reason, ")", NULL);
+					net.send(HAS_N, "[-] Cannot connect to %s (%s)", config.currentServer ? (const char *) config.currentServer->getHost().connectionString : "unknown server", reason);
 
 			}
-
 			ME.reset();
 		}
 		else if(this == &net.hub)
 		{
 			if(net.hub.status &  STATUS_REGISTERED)
 			{
-				net.propagate(&net.hub, S_BQUIT, " ", reason, NULL);
+				net.propagate(&net.hub, "%s %s", S_BQUIT, reason);
 			}
 			else
 			{
@@ -523,16 +527,16 @@ void inetconn::_close(const char *reason)
 			{
 				if(status & STATUS_PARTY)
 				{
-					net.send(HAS_N, "[*] ", handle->name, " has left the partyline (", reason, ")", NULL);
+					net.send(HAS_N, "%s has left the partyline (%s)", handle->name, reason);
 					if(!checkFlag(HAS_N))
-						send("[*] ", handle->name, " has left the partyline (", reason, ")", NULL);
+						send("%s has left the partyline (%s)", handle->name, reason);
 				}
 				else if(status & STATUS_BOT)
 				{
-					if(!(status & STATUS_REDIR)) net.send(HAS_N, "[-] Lost connection to ", handle->name, " (", reason, ")", NULL);
+					if(!(status & STATUS_REDIR)) net.send(HAS_N, "[-] Lost connection to %s (%s)", handle->name, reason);
 				}
 			}
-			else if(!(status & STATUS_SILENT)) net.send(HAS_N, "[-] Lost ", getPeerIpName(), " / ", getPeerPortName(), " (", reason, ")", NULL);
+			else if(!(status & STATUS_SILENT)) net.send(HAS_N, "[-] Lost %s / %s (%s)", getPeerIpName(), getPeerPortName(), reason);
 		}
 	}
 	else
@@ -547,7 +551,7 @@ void inetconn::_close(const char *reason)
 
 
 	if(read.buf) free(read.buf);
-	if(write.buf) free(write.buf);
+	if(write.buf) { free(write.buf); write.buf=NULL; }
 	if(name) free(name);
 	if(tmpstr) free(tmpstr);
 	if(origin) free(origin);
@@ -556,21 +560,67 @@ void inetconn::_close(const char *reason)
 #ifdef HAVE_SSL
 	if(ssl_ctx) SSL_CTX_free(ssl_ctx);
 	if(ssl) SSL_free(ssl);
+	if(ssl_buffer) free(ssl_buffer);
 #endif
 	memset(this, 0, sizeof(inetconn));
 }
 
-int inetconn::va_send(va_list ap, const char *lst)
+int inetconn::sendRaw(const char *lst, ...)
+{
+    char buf[MAX_LEN];
+    va_list list;
+    bool foo=false;
+    int bla;
+
+    va_start(list, lst);
+    vsnprintf(buf, MAX_LEN, lst, list);
+    va_end(list);
+
+    if(status & STATUS_REGISTERED)
+    {
+        status&=~STATUS_REGISTERED;
+        foo=true;
+    }
+
+    bla=send("%s", buf);
+
+    if(foo)
+        status|=STATUS_REGISTERED;
+
+    return bla;
+}
+
+int inetconn::send(const char *lst, ...)
 {
 	int size; 
 	char *p, *q;
+	char buf[MAX_LEN];
+	va_list list;
 
-	va_list ap_copy;
-	MY_VA_COPY(ap_copy, ap);
-	size = va_getlen(ap_copy, lst) + 3;
-	va_end(ap_copy);
+        va_start(list, lst);
+        vsnprintf(buf, MAX_LEN, lst, list);
+        va_end(list);
 
 	inetconn *conn = status & STATUS_REDIR ? net.findRedirConn(this) : this;
+
+	if(!(status & STATUS_REDIR) && !isBot() && isRegUser())
+	{
+		char tmp[MAX_LEN], timestamp[MAX_LEN];
+
+		if(status & STATUS_IRCCLIENT)
+		{
+			strcpy(tmp, buf);
+			snprintf(buf, MAX_LEN, ":partyline!partyline@%s PRIVMSG %s :%s", (const char*)config.partyline_servername, name, tmp);
+		}
+
+		else
+		{
+		    strftime(timestamp, MAX_LEN, "[%H:%M]", localtime(&NOW));
+		    strcpy(tmp, buf);
+		    snprintf(buf, MAX_LEN, "%s %s", timestamp, tmp);
+		}
+	}
+
 #ifdef HAVE_DEBUG
 	if(debug)
 	{
@@ -593,8 +643,11 @@ int inetconn::va_send(va_list ap, const char *lst)
 
 	if(conn->fd < 1) return 0;
 
-	p = va_push(NULL, ap, lst, size);
-	size = strlen(p) + 3;
+	//p = va_push(NULL, ap, lst, size);
+	size = strlen(buf) + 3;
+	p = (char *) malloc(size);
+        memset(p, size, 0);
+        strcpy(p, buf);
 
 	if(status & STATUS_REDIR)
 	{
@@ -616,9 +669,9 @@ int inetconn::va_send(va_list ap, const char *lst)
 		|| debug
 #endif
 		)
-			printf("[D] send[%s]: %s", conn->name, p);
+//			printf("[D] send[%s]: %s", conn->name, p);
 		if(pset.debug_show_irc_write & 2)
-			net.send(HAS_N, "[D] send[", conn->name ? conn->name : "???", "]: ", p, NULL);
+			net.send(HAS_N, "[D] send[%s]: %s", conn->name ? conn->name : "???", p);
 	}
 	else
 	{
@@ -652,6 +705,9 @@ int inetconn::va_send(va_list ap, const char *lst)
 		}
 	}
 
+	if(conn == &net.irc/* && (net.irc.status & STATUS_REGISTERED)*/)
+		penalty.calculatePenalty(p);
+
 	if(conn->write.buf)
 	{
 		conn->write.buf = (char *) realloc(conn->write.buf, conn->write.len + size);
@@ -665,16 +721,32 @@ int inetconn::va_send(va_list ap, const char *lst)
 #ifdef HAVE_SSL
 		if(status & STATUS_SSL)
 		{
-			n = SSL_write(ssl, p, size);
-			if(n < 0)
+			if(!ssl_buffer)
 			{
-				int ret = SSL_get_error(ssl, n) ;
-				if(ret == SSL_ERROR_WANT_READ || ret == SSL_ERROR_WANT_WRITE)
+				// when SSL_write() fails, it must be repeated exactly with the same parameters
+				// - patrick
+
+				ssl_buffer=strdup(p);
+				n = SSL_write(status & STATUS_REDIR ? net.hub.ssl : ssl, ssl_buffer, size);
+				if(n < 0)
 				{
-					DEBUG(printf("[D] SSL: write error: want read/write\n"));
+					int ret = SSL_get_error(ssl, n) ;
+					if(ret == SSL_ERROR_WANT_READ || ret == SSL_ERROR_WANT_WRITE)
+					{
+					
+						DEBUG(printf("[D] SSL: write error: want read/write\n"));
+					}
+				}
+
+				else
+				{
+					free(ssl_buffer);
+					ssl_buffer=NULL;
 				}
 			}
-			DEBUG(printf("[D] SSL: wrote %d bytes\n", n));
+
+			else
+				n = -1;
 		}
 		else
 			n = ::write(conn->fd, p, size);
@@ -695,17 +767,6 @@ int inetconn::va_send(va_list ap, const char *lst)
 
 	free(p);
 	return size;
-}
-
-int inetconn::send(const char *lst, ...)
-{
-	va_list ap;
-	int n;
-
-	va_start(ap, lst);
-	n = va_send(ap, lst);
-	va_end(ap);
-	return n;
 }
 
 int inetconn::readln(char *buf, int len, int *ok)
@@ -754,7 +815,7 @@ int inetconn::readln(char *buf, int len, int *ok)
 						if(pset.debug_show_irc_read & 1)
 							printf("[D] read[%s]: %s\n", name, buf);
 						if(pset.debug_show_irc_read & 2)
-							net.send(HAS_N, "[D] read[", name ? name : "???", "]: ", buf, NULL);
+							net.send(HAS_N, "[D] read[%s]: %s", name ? name : "???", buf);
 					}
 				}
 				
@@ -836,14 +897,20 @@ int inetconn::isRegUser()
 
 int inetconn::sendPing()
 {
-	if(!(status & STATUS_REDIR) && (status & STATUS_REGISTERED) && lastPing && NOW - lastPing > set.CONN_TIMEOUT / 2)
+	if(this == &net.irc)
 	{
-		if(this == &net.irc)
+		if(!lagcheck.inProgress && penalty < 5 && (status & STATUS_REGISTERED) && NOW >= lagcheck.next)
 		{
-			send("ison ", (const char *) ME.nick, NULL);
-			penalty++;
+			send("PING %s", ME.server.name);
+			lagcheck.inProgress=true;
+			gettimeofday(&lagcheck.sent, NULL);
 		}
-		else send(S_FOO, NULL);
+	}
+
+
+	else if(!(status & STATUS_REDIR) && (status & STATUS_REGISTERED) && lastPing && NOW - lastPing > set.CONN_TIMEOUT / 2)
+	{
+		send("%s", S_FOO);
 		lastPing = NOW;
 		return 1;
 	}
@@ -853,7 +920,17 @@ int inetconn::sendPing()
 int inetconn::timedOut()
 {
 	if(status & STATUS_REDIR) return 0;
-	if(killTime && killTime <= NOW)
+
+	if(this == &net.irc)
+	{
+		if(lagcheck.getLag()/1000 > set.CONN_TIMEOUT)
+		{
+			close("Ping timeout");
+			return 1;
+		}
+	}
+
+	else if(killTime && killTime <= NOW)
 	{
 		close("Ping timeout");
 		return 1;
@@ -868,7 +945,7 @@ int inetconn::enableCrypt(const char *key, int len)
 
 int inetconn::enableCrypt(const unsigned char *key, int len)
 {
-	if(fd < 1) return 0;
+	if(fd < 0) return 0;
 
 #ifdef HAVE_SSL
 	if(status & STATUS_SSL)
@@ -948,7 +1025,7 @@ int inetconn::open(const char *pathname, int flags, mode_t mode)
 	if(mode) fd = ::open(pathname, flags, mode);
 	else fd = ::open(pathname, flags);
 
-	if(fd > 0)
+	if(fd >= 0)
 	{
 		status = STATUS_FILE;
 		mem_strcpy(name, getFileName((char *) pathname));
@@ -966,7 +1043,7 @@ int inetconn::enableLameCrypt()
 {
 	struct stat info;
 
-	if(fd < 1) return 0;
+	if(fd < 0) return 0;
 
 	if(blowfish)
 	{
@@ -1122,11 +1199,36 @@ int inetconn::isBot()
 
 void inetconn::writeBufferedData()
 {
-	if(write.buf && !(status & STATUS_REDIR) && fd > 0)
+	int n;
+#ifdef HAVE_SSL
+	if(ssl_buffer)
+	{
+		int size = strlen(ssl_buffer);
+
+		if(fd >= 0 && status & STATUS_SSL)
+		{
+			if((n = SSL_write(ssl, ssl_buffer, size)) == size)
+			{
+				free(ssl_buffer);
+				ssl_buffer=NULL;
+			}
+
+			else if(n < 0)
+			{
+				int ret = SSL_get_error(ssl, n);
+
+				if(ret == SSL_ERROR_WANT_READ || ret == SSL_ERROR_WANT_WRITE)
+					DEBUG(printf("[D] SSL: write error (from buffer): want read/write\n"));
+			}
+		}
+
+		return;
+	}
+#endif
+	if(write.buf && !(status & STATUS_REDIR) && fd >= 0)
 	{
 		//FIXME: we should write more then 1 byte at a time
 #ifdef HAVE_SSL
-		int n;
 		if(status & STATUS_SSL)
 		{
 			if((n = SSL_write(ssl, write.buf + write.pos, 1)) == 1)
@@ -1148,7 +1250,9 @@ void inetconn::writeBufferedData()
 		if(write.pos == write.len)
 		{
 			free(write.buf);
-			memset(&write, 0, sizeof(write));
+			write.buf=NULL;
+			write.pos=0;
+			write.len=0;
 		}
 	}
 }
@@ -1200,7 +1304,7 @@ void inetconn::SSLHandshake()
 		switch(ret)
 		{
 			case 1:
-				killTime = NOW + set.AUTH_TIME;
+				killTime = NOW + set.AUTH_TIMEOUT;
 				status |= STATUS_CONNECTED;
 				status &= ~(STATUS_SSL_HANDSHAKING | STATUS_SSL_WANT_ACCEPT | STATUS_SSL_WANT_CONNECT);
 				DEBUG(printf("[D] SSL: CONNECTED ;-))))\n"));
@@ -1228,6 +1332,58 @@ void inetconn::SSLHandshake()
 	}
 }
 
-
-
 #endif
+
+/** Sends a message to the hub.
+ *
+ * \author patrick <patrick@psotnic.com>
+ * \param str the text which should be sent
+ * \return 1 if message was sent, 0 if it failed.
+ */
+
+int inet::sendHub(const char *str, ...)
+{
+  int i;
+  char buffer[MAX_LEN];
+  va_list list;
+
+  va_start(list, str);
+  vsnprintf(buffer, MAX_LEN, str, list);
+  va_end(list);
+
+  if(net.hub.fd && net.hub.isMain()) {
+    net.hub.send("%s", buffer);
+    return 1;
+  }
+
+  else {
+    for(i=0; i<net.max_conns; ++i) {
+      if(net.conn[i].isMain() && net.conn[i].fd) {
+        net.conn[i].send("%s", buffer);
+        return 1;
+      }
+    }
+  }
+
+  return 0;
+}
+
+/**
+ * \author patrick <patrick@psotnic.com>
+ * \return current lag in ms or -1 if the bot is not connected or no lag check was performed
+ */
+
+int inetconn::Lagcheck::getLag()
+{
+  if(!(net.irc.status & STATUS_REGISTERED)) // FIXME: back pointer?
+    return -1;
+ 
+  if(!net.irc.lagcheck.sent.tv_usec) // FIXME: back pointer?
+    return -1;
+
+  if(inProgress)
+    return (NOW - sent.tv_sec) * 1000;
+
+  else
+    return lag;
+}

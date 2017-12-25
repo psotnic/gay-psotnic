@@ -42,8 +42,8 @@
              after last change 
 */
 
-#include "../prots.h"
-#include "../global-var.h"
+#include <prots.h>
+#include <global-var.h>
 
 #include <regex.h>
 #include <stdarg.h>
@@ -375,12 +375,12 @@ bool Words::print(const chanuser *u)
       str+=DELIM;
       if (str.size()+it->size()>SIZE)
         {
-          ME.privmsg(u->nick,str.c_str(),NULL);
+          ME.privmsg(u->nick, "%s", str.c_str());
 	  str.clear();
         }
       str+=*it;
     }
-  ME.privmsg(u->nick,str.c_str(),NULL);
+  ME.privmsg(u->nick, "%s", str.c_str());
   return true;
 }
 
@@ -471,13 +471,13 @@ bool BlackList::print(const chan *ch)
       
       if (str.size()+buf.size()>SIZE)
         {
-          ME.privmsg(ch->name,str.c_str(),NULL);
+          ME.privmsg(ch->name, "%s", str.c_str());
 	  str.clear();
         }
 	
       str+=buf;
     }
-  ME.privmsg(ch->name,str.c_str(),NULL);
+  ME.privmsg(ch->name, "%s", str.c_str());
   return true;
 }
 
@@ -494,7 +494,7 @@ void AntiWords::print(const chan *ch,const char *str,...)
   
   snprintf(msg,255,"\x02%s:\x02 %s",NAME,buf);
   
-  ME.privmsg(ch->name,msg,NULL);
+  ME.privmsg(ch->name, "%s", msg);
 }
 
 
@@ -507,7 +507,7 @@ void AntiWords::print(const chanuser *u,const char *str,...)
   vsnprintf(buf,256,str,args);
   va_end(args);
   
-  ME.privmsg(u->nick,buf,NULL);
+  ME.privmsg(u->nick, "%s", buf);
 }
 
 void AntiWords::print_help(const chanuser *u)
@@ -522,7 +522,7 @@ void AntiWords::print_about(const chan *ch)
   static char buf[256];
   
   snprintf(buf,256,"\x02%s\x02 module, version %s, programmed by %s",NAME,VERSION,AUTHOR);
-  ME.privmsg(ch->name,buf,NULL);
+  ME.privmsg(ch->name, "%s", buf);
 }
 
 void AntiWords::parsecmd(const chan *ch,const chanuser *u,const char *line)
@@ -769,8 +769,8 @@ void hook_ctcp(const char *from, const char *to, const char *msg)
   if (u->flags & (HAS_V | HAS_O | IS_OP | IS_VOICE)) return;
 
   if (!match("ACTION *", msg)) return;
-	
-  AntiWords::check_word(msg,ch,u);
+
+  AntiWords::check_word(msg+7,ch,u);
 }
 
 void hook_privmsg(const char *from, const char *to, const char *msg)

@@ -41,8 +41,8 @@ adns_pthread::host2ip *adns_pthread::getIp(const char *host)
 	pthread_mutex_lock(&data_mutex);
 	host2ip *ip = __getIp(host);
 
-	if(ip)
-		ip->creat_t = NOW;
+//	if(ip)
+//		ip->creat_t = NOW;
 	pthread_mutex_unlock(&data_mutex);
 	return ip;
 }
@@ -66,7 +66,7 @@ void adns_pthread::resolv(const char *host)
 		{
 			DEBUG(printf("adns_pthread::resolver::todo->add(\"%s\")\n", host));
 			todo->add(h);
-
+			//pthread_mutex_unlock(&condition_mutex);
 			pthread_cond_broadcast(&condition);
 		}
 	}
@@ -131,8 +131,8 @@ void adns_pthread::work()
 			pthread_mutex_lock(&data_mutex);
 			if(*buf4 || *buf6)
 				cache->add(new host2ip(resbuf, buf4, buf6));
-			//else
-			//	DEBUG(printf(">>> unknown host: %s\n", h->host));
+			else
+				DEBUG(printf(">>> unknown host: %s\n", h->host));
 
 			host2resolv h2(resbuf2);
 			resolving->remove(h2);
@@ -141,10 +141,9 @@ void adns_pthread::work()
 		else
 		{
 			pthread_mutex_unlock(&data_mutex);
-			
 			pthread_mutex_lock(&condition_mutex);
 			pthread_cond_wait(&condition, &condition_mutex);
-			
+			pthread_mutex_unlock(&condition_mutex);
 		}
 		if(die)
 			break;

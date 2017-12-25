@@ -4,6 +4,8 @@
 #include "pstring.h"
 
 class comment;
+class inetconn;
+class HANDLE;
 
 struct psotnicHeader
 {
@@ -49,6 +51,23 @@ struct flagTable
 	unsigned int enforced;
 	const char *desc;
 	const char *long_desc;
+};
+
+struct partyline_commands
+{
+	const char *command;
+	int (*func)(inetconn *c, char *data, char arg[][MAX_LEN], int argc);
+	int min_args;
+	const char *syntax;
+	bool main_only;
+};
+
+struct bot_commands
+{
+        const char *command;
+        int (*func)(HANDLE *h, const char *data, char arg[][MAX_LEN], int argc);
+        int min_args;
+        const char *syntax;
 };
 
 #endif

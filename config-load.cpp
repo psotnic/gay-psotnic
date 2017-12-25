@@ -23,25 +23,33 @@
 
 void CONFIG::load(const char *file, bool decrypted)
 {
-	char arg[10][MAX_LEN], buf[MAX_LEN];
+	char arg[10][MAX_LEN], buf[MAX_LEN], cwd[MAX_LEN];
 	int line = 0, n;
 	int errors = 0;
 	int alts = 0;
+	int i;
+	bool can_link_bots=false;
+//	bool listening=false;
+	bool listening_ssl=false;
 	options::event *e;
 	inetconn f;
 
 	config.file = file;
 
-	if(creation || decrypted)
-		printf("[*] Loading decrypted config from '%s'\n", file);
+	getcwd(cwd, MAX_LEN);
 
-	if(f.open(file, O_RDWR) < 1)
+	if(decrypted)
+		printf("[*] Loading decrypted config from '%s/%s'\n", cwd, file);
+	else
+		printf("[*] Loading config from '%s/%s'\n", cwd, file);
+
+	if(f.open(file, O_RDWR) < 0)
 	{
-		printf("[-] Cannot open config file: %s\n", strerror(errno));
+		printf("[-] Cannot open config file '%s/%s': %s\n", cwd, file, strerror(errno));
 		exit(1);
 	}
 
-	if(!creation && !decrypted)
+	if(!decrypted)
 		f.enableLameCrypt();
 
 	while(1)
@@ -58,7 +66,7 @@ void CONFIG::load(const char *file, bool decrypted)
 		e = setVariable(arg[0], rtrim(srewind(buf, 1)));
 		if(!e->ok)
 		{
-			printf("[-] %s:%d: %s\n", file, line, (const char *) e->reason);
+			printf("[-] %s/%s:%d: %s\n", cwd, file, line, (const char *) e->reason);
 			++errors;
 		}
 	}
@@ -77,35 +85,56 @@ void CONFIG::load(const char *file, bool decrypted)
 		exit(1);
 	}
 
-	polish();
+        for(i=0; i<MAX_LISTENPORTS; i++)
+        {
+                if(config.listenport[i].isDefault())
+                        continue;
 
-	if(creation && !decrypted)
+                if(config.listenport[i].getHost().isSSL())
+                        listening_ssl=true;
+
+//                listening=true;
+
+		if(!strcmp(config.listenport[i].getHandle(), "all") || !strcmp(config.listenport[i].getHandle(), "bots"))
+			can_link_bots=true;
+        }
+
+	if(!config.hub.getPort())
 	{
-		printf("[*] Crypting config file\n");
-
-		// make a backup
-		snprintf(buf, MAX_LEN, "%s.dec", (const char *) config.file);
-		unlink(buf);
-
-		if(rename(config.file, buf))
-		{
-			printf("[-] cannot create backup file '%s': %s\n", buf, strerror(errno));
-			exit(1);
-		}
-
-		e = config.save();
-
-		if(!e || !e->ok)
-		{
-			printf("[-] Cannot save config file: %s\n", (const char *) e->reason);
-			exit(1);
-		}
-
-		printf("[+] All done\n");
-		printf("[*] Please move %s.dec to safe place and start bot without -c option\n", file);
-		printf("[+] Terminating.\n");
-		exit(0);
+		printf("[*] Acting as MAIN\n");
+		config.bottype = BOT_MAIN;
 	}
+
+	else if(can_link_bots)
+	{
+		printf("[*] Acting as SLAVE\n");
+		config.bottype = BOT_SLAVE;
+	}
+
+	else
+	{
+		printf("[*] Acting as LEAF\n");
+		config.bottype = BOT_LEAF;
+	}
+
+        if(config.bottype != BOT_LEAF)
+        {
+                if(alts)
+                {
+                        printf("[-] Alternating slaves can only be used for leafes\n");
+                        goto plonk;
+                }
+        }
+        else
+        {
+                if(!*config.hub.getHandle() && alts)
+                {
+                        printf("[-] Invalid hub's handle\n");
+                        goto plonk;
+                }
+        }
+
+	polish();
 
 	if(imUp())
 	{
@@ -114,61 +143,16 @@ void CONFIG::load(const char *file, bool decrypted)
 		exit(1337);
 	}
 
-	if(config.listenport
-#ifdef HAVE_SSL
-		|| config.ssl_listenport
-#endif
-	)
-	{
-		if(config.hub.getPort())
-		{
-			printf("[*] Acting as SLAVE\n");
-			config.bottype = BOT_SLAVE;
-		}
-		else
-		{
-			printf("[*] Acting as MAIN\n");
-			config.bottype = BOT_MAIN;
-		}
-	}
-	else
-	{
-		printf("[*] Acting as LEAF\n");
-		config.bottype = BOT_LEAF;
-	}
-
-	if(config.bottype != BOT_LEAF)
-	{
-		if(alts)
-		{
-			printf("[-] Alternating slaves can only be used for leafes\n");
-			goto plonk;
-		}
-	}
-	else
-	{
-		if(!*config.hub.getHandle() && alts)
-		{
-			printf("[-] Invalid hub's handle\n");
-			goto plonk;
-		}
-	}
 	printf("[+] Config loaded\n");
 
-	if(config.listenport)
-	{
-		printf("[*] Opening listening socket at %s:%d\n", (const char *) config.myipv4, (int) config.listenport);
-		if((net.listenfd = startListening(config.myipv4, config.listenport)) < 1)
-		{
-			printf("[-] Cannot open socket (%s)\n", strerror(errno));
-			exit(1);
-		}
-		printf("[+] Socket awaits incomming connections\n");
-	}
-
 #ifdef HAVE_SSL
-	if(config.ssl_listenport)
+	if(listening_ssl)
 	{
+		char tmp[MAX_LEN];
+		char cwd[MAX_LEN];
+
+		getcwd(cwd, MAX_LEN);
+
 		printf("[*] Creating SSL context\n");
 		
 		if(!(inet::server_ctx = SSL_CTX_new(SSLv23_method())) || !SSL_CTX_set_mode(inet::server_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE))
@@ -177,28 +161,54 @@ void CONFIG::load(const char *file, bool decrypted)
 			exit(1);
 		}
 
-		printf("[*] Loading RSA private key from `server.key'\n");
-		if(!SSL_CTX_use_RSAPrivateKey_file(inet::server_ctx, "server.key", SSL_FILETYPE_PEM))
+		snprintf(tmp, MAX_LEN, "server.key");
+		printf("[*] Loading RSA private key from `%s/%s'\n", cwd, tmp);
+		if(!SSL_CTX_use_RSAPrivateKey_file(inet::server_ctx, tmp, SSL_FILETYPE_PEM))
 		{
 			printf("[-] Error while loading key\n");
 			exit(1);
 		}
 		
-		printf("[*] Loading server certificate from `server.cert'\n");
-		if(!SSL_CTX_use_certificate_file(inet::server_ctx, "server.crt", SSL_FILETYPE_PEM))
+		snprintf(tmp, MAX_LEN, "server.crt");
+		printf("[*] Loading server certificate from `%s/%s'\n", cwd, tmp);
+		if(!SSL_CTX_use_certificate_file(inet::server_ctx, tmp, SSL_FILETYPE_PEM))
 		{
 			printf("[-] Error while loading cert\n");
 			exit(1);
 		}
-		
-		printf("[*] Opening listening SSL socket at %s:%d\n", (const char *) config.myipv4, (int) config.ssl_listenport);
-		if((net.ssl_listenfd = startListening(config.myipv4, config.ssl_listenport)) < 1)
-		{
-			printf("[-] Cannot open socket (%s)\n", strerror(errno));
-			exit(1);
-		}
-		printf("[+] Socket awaits incomming SSL connections\n");
-
 	}
 #endif
+
+        for(i=0; i<MAX_LISTENPORTS; i++)
+        {
+                if(!config.listenport[i].isDefault())
+                {
+                        inet::listen_entry *e=new inet::listen_entry();
+
+			e->access=0;
+
+			if(!strcmp(config.listenport[i].getHandle(), "all"))
+				e->access=LISTEN_ALL;
+			else if(!strcmp(config.listenport[i].getHandle(), "users"))
+				e->access=LISTEN_USERS;
+			else if(!strcmp(config.listenport[i].getHandle(), "bots"))
+				e->access=LISTEN_BOTS;
+
+                        printf("[*] Opening listening socket at %s:%d\n", config.listenport[i].getHost().isIpv6() ? (const char *)config.listenport[i].getHost().ip6 : (const char *)config.listenport[i].getHost().ip4, (int) config.listenport[i].getPort());
+
+                        if(config.listenport[i].isSSL())
+                                e->use_ssl=true;
+
+                        e->fd=startListening(config.listenport[i].getHost().isIpv6() ? (const char*)config.listenport[i].getHost().ip6 : (const char*)config.listenport[i].getHost().ip4, config.listenport[i].getPort());
+                        net.listeners.add(e);
+
+                        if(e->fd < 1)
+                        {
+                                printf("[-] Cannot open socket (%s)\n", strerror(errno));
+                                exit(1);
+                        }
+
+                        printf("[+] Socket awaits incomming connections\n");
+                }
+        }
 }

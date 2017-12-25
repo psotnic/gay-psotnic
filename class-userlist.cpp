@@ -189,21 +189,22 @@ void ul::sendHandleInfo(inetconn *c, const HANDLE *h, const char *mask)
 {
         int i, n;
 	char *a, buf[MAX_LEN];
+	ptrlist<HANDLE::ADDR::entry>::iterator ip;
 
-	c->send("Matching ", userlist.isBot(h) ? "bot '\002" : "user '\002", h->name, "\002'", NULL);
+	c->send("Matching %s '%s'", userlist.isBot(h) ? "bot" : "user", h->name);
 	if(!userlist.isBot(h))
 	{
 		userlist.flags2str(h->flags[MAX_CHANNELS], buf);
-		c->send("global flags:\002 ", buf, "\002", !isNullString((char *) h->pass, 16) ? ", password is set" : "", NULL);
+		c->send("global flags: %s %s", buf, !isNullString((char *) h->pass, 16) ? ", password is set" : "");
 	}
 	else if(c->checkFlag(HAS_S))
 	{
 		userlist.flags2str(h->flags[MAX_CHANNELS], buf);
-		c->send("flags: \002", buf, "\002, ip:\002 ", inet2char(h->ip), "\002", !isNullString((char *) h->pass, 16) ? ", password is set" : "", (ul::isMain(h) || net.findConn(h)) ? ", linked" : ", \002not\002 linked", NULL);
+		c->send("flags: %s, ip: %s %s %s", buf, inet2char(h->ip), !isNullString((char *) h->pass, 16) ? ", password is set" : "", (ul::isMain(h) || net.findConn(h)) ? ", linked" : ", not linked");
 	}
 	else
 	{
-		c->send(S_NOPERM, NULL);
+		c->send("%s", S_NOPERM);
 		return;
 	}
 
@@ -213,12 +214,12 @@ void ul::sendHandleInfo(inetconn *c, const HANDLE *h, const char *mask)
 		if(h->flags[i] && userlist.chanlist[i].name)
 		{
 			userlist.flags2str(h->flags[i], buf);
-			if(!n) a = push(a, "", (const char *) userlist.chanlist[i].name, "(\002", buf, "\002)", NULL);
-			else a = push(a, "\002,\002 ", (const char *) userlist.chanlist[i].name, "(\002", buf, "\002)", NULL);
+			if(!n) a = push(a, "", (const char *) userlist.chanlist[i].name, "(", buf, ")", NULL);
+			else a = push(a, ", ", (const char *) userlist.chanlist[i].name, "(", buf, ")", NULL);
 			++n;
 		}
 	}
-	if(n) c->send(a, NULL);
+	if(n) c->send("%s", a);
 	free(a);
 
 	if(h->info && h->info->data.entries())
@@ -228,18 +229,18 @@ void ul::sendHandleInfo(inetconn *c, const HANDLE *h, const char *mask)
 
 		while(e)
 		{
-			a = push(a, a ? (char *) "\002,\002 " : (char *) " ", e->key, ": ",
+			a = push(a, a ? (char *) ", " : (char *) " ", e->key, ": ",
 				 e->value, NULL);
 			e++;
 		}
-		c->send(a+1, NULL);
+		c->send("%s", a+1);
 		free(a);
 	}
 
 	if(h->createdBy)
-		c->send("created at ", h->creation->ctime(), " by ", h->createdBy, NULL);
+		c->send("created at %s by %s", h->creation->ctime(), h->createdBy);
 	else
-		c->send("created at ", h->creation->ctime(), NULL);
+		c->send("created at %s", h->creation->ctime());
 
 	if(h->history && h->history->data.entries() && MAX_WHOIS_OFFENCES > 0)
 	{
@@ -247,7 +248,7 @@ void ul::sendHandleInfo(inetconn *c, const HANDLE *h, const char *mask)
 		ptrlist<offence::entry>::iterator e = h->history->data.begin();
 		i = 0;
 
-		c->send("offence history: ", NULL);
+		c->send("offence history: ");
 		while(e && i < MAX_WHOIS_OFFENCES)
 		{
 			userlist.flags2str(e->fromFlags, flags1);
@@ -255,7 +256,7 @@ void ul::sendHandleInfo(inetconn *c, const HANDLE *h, const char *mask)
 
 			snprintf(buf, MAX_LEN, "[%3d]: %s(%d): %s\n       %s flags decreased from `%s' to `%s'\n       Created: %s",
 					++i, e->chan, e->count, e->mode, e->global ? "Global" : "Channel", flags1, flags2, timestr("%d/%m/%Y %T", e->time));
-			c->send(buf, NULL);
+			c->send("%s", buf);
 			e++;
 		}
 	}
@@ -271,7 +272,7 @@ void ul::sendHandleInfo(inetconn *c, const HANDLE *h, const char *mask)
 			{
 				if(chans.len + strlen(chanlist[i].name) > 50)
 				{
-					c->send("channels: ", chans.data, NULL);
+					c->send("channels: %s", chans.data);
 					chans.clean();
 				}
 
@@ -281,8 +282,10 @@ void ul::sendHandleInfo(inetconn *c, const HANDLE *h, const char *mask)
 			}
 		}
 		if(chans.len)
-			c->send("channels: ", chans.data, NULL);
+			c->send("channels: %s", chans.data);
 	}
+
+	c->send("hosts: ");
 
 	for(i=0, n=0; i<MAX_HOSTS; i++)
 	{
@@ -291,7 +294,7 @@ void ul::sendHandleInfo(inetconn *c, const HANDLE *h, const char *mask)
 			if(isBot(h) && i == MAX_HOSTS-1)
 			{
 				if((mask && *mask) ? (match(h->host[i], mask) || match(mask, h->host[i])) : 1)
-					sprintf(buf, "[\002tmp\002]: ");
+					sprintf(buf, "[tmp]: ");
 				else
 					sprintf(buf, "[tmp]: ");
 				++n;
@@ -299,15 +302,23 @@ void ul::sendHandleInfo(inetconn *c, const HANDLE *h, const char *mask)
 			else
 			{
 				if((mask && *mask) ? (match(h->host[i], mask) || match(mask, h->host[i])) : 1)
-					sprintf(buf, "[\002#%2d\002]: ", ++n);
+					sprintf(buf, "[#%2d]: ", ++n);
 				else
 					sprintf(buf, "[#%2d]: ", ++n);
 			}
-			if(h->hostBy[i]) c->send(buf, h->host[i], " (", h->hostBy[i], ")", NULL);
-			else c->send(buf, h->host[i], NULL);
+			if(h->hostBy[i]) c->send("%s %s (%s)", buf, h->host[i], h->hostBy[i]);
+			else c->send("%s %s", buf, h->host[i]);
 		}
 	}
-	if(!n) c->send("No hosts has been found", NULL);
+	if(!n) c->send("No hosts has been found");
+
+	c->send("addrs: ");
+
+	for(ip=h->addr->data.begin(), i=0; ip; ip++)
+	{
+		sprintf(buf, "[#%2d]: ", ++i);
+		c->send("%s %s", buf, ip->ip);
+	}
 }
 
 HANDLE *ul::changeIp(char *user, char *ip)
@@ -330,37 +341,40 @@ HANDLE *ul::changeIp(char *user, char *ip)
 void ul::sendBotTree(inetconn *c)
 {
 	int slaves = 0;
+	int myLeafs = 0;
 
 	for (int i = 0; i < net.max_conns; ++i )
 	{
 		if (net.conn[i].isSlave())
 			slaves++;
+
+		if (net.conn[i].isLeaf() && !(net.conn[i].status & STATUS_REDIR))
+			myLeafs++;
 	}
 
-	c->send(config.handle, " (has ", itoa(slaves), " slave",
-		slaves == 1 ? (char *) "" : (char *) "s", ")", NULL);
+	c->send("%s (has %d slave%s)", (const char *) config.handle, slaves, slaves == 1 ? (char *) "" : (char *) "s");
 
 	for ( int i = 0; i < net.max_conns; ++i )
 	{
 		if (net.conn[i].isSlave())
 		{
 			if(net.conn[i].isRedir())
-				c->send("[!] ", net.conn[i].handle->name, " has slave flags but is not linked to me", NULL);
+				c->send("\002%s has slave flags but is not linked to me\002", net.conn[i].handle->name);
 
 			int leafs = 0;
 			for ( int j = 0; j < net.max_conns; ++j )
 			{
 				if (net.conn[j].isLeaf() && net.conn[j].fd == net.conn[i].fd)
-                {
-                	if(!net.conn[j].isRedir())
-				c->send("[!] ", net.conn[j].handle->name, " has leaf flags, but is linked to me", NULL);
-			leafs++;
-		}
+                		{
+                			if(!net.conn[j].isRedir())
+						c->send("\002%s has leaf flags, but is linked to me\002", net.conn[j].handle->name);
+					leafs++;
+				}
 			}
 
 			slaves--;
-			c->send(slaves ? (char *) " |" : (char *) " `", "-", net.conn[i].handle->name,
-					" (has ", itoa(leafs), " leaf", leafs == 1 ? (char *) "" : (char *) "s", ")", NULL);
+			c->send("%s-%s (has %d leaf%s)", slaves ? (char *) " |" : (char *) " `", net.conn[i].handle->name,
+					leafs, leafs == 1 ? (char *) "" : (char *) "s");
 
 			for ( int j = 0; j < net.max_conns; ++j )
 			{
@@ -368,17 +382,23 @@ void ul::sendBotTree(inetconn *c)
 				{
 					leafs--;
 					if (slaves)
-						c->send(leafs ? (char *) " |   |" : (char *) " |   `", "-", net.conn[j].handle->name, NULL);
+						c->send("%s-%s", leafs ? (char *) " |   |" : (char *) " |   `", net.conn[j].handle->name);
 					else
-						c->send(leafs ? (char *) "     |" : (char *) "     `", "-", net.conn[j].handle->name, NULL);
+						c->send("%s-%s", leafs ? (char *) "     |" : (char *) "     `", net.conn[j].handle->name);
 				}
 			}
+		}
+
+		else if(net.conn[i].isLeaf() && !(net.conn[i].status & STATUS_REDIR))
+		{
+			// leafs that are linked to main -- patrick
+			c->send("%s-%s", myLeafs ? (char *) " |" : (char *) " `", net.conn[i].handle->name);
+			myLeafs--;
 		}
 	}
 	int n = net.bots() + 1;
 
-	c->send("[*] ", itoa(n), " bot",
-		n == 1 ? (char *) "" : (char *) "s", " on-line", NULL);
+	c->send("%d bot%s on-line", n, n == 1 ? (char *) "" : (char *) "s");
 
 }
 /* end of by Googie */
@@ -415,7 +435,6 @@ void ul::cleanChannel(int i)
 void ul::cleanHandle(HANDLE *h)
 {
 	int i=0;
-
 	memset(h->pass, 0, 16);
 
 	for(i=0; i<MAX_HOSTS; ++i)
@@ -434,6 +453,7 @@ void ul::cleanHandle(HANDLE *h)
 		h->flags[i] = 0;
 	}
 	h->flags[MAX_CHANNELS] = (h->flags[MAX_CHANNELS] & HAS_B) ? B_FLAGS : 0;
+	h->addr->data.clear();
 }
 
 int ul::parse(char *data)
@@ -464,9 +484,14 @@ int ul::parse(char *data)
 			}
 		}
 
-		if(!strcmp(arg[0], S_ADDUSER) || !strcmp(arg[0], "ADDUSER")) userlist.addHandle(arg[1], 0, 0, arg[2], arg[3], arg[4]);
-		else userlist.addHandle(arg[1], inet_addr(arg[4]), B_FLAGS, arg[2], arg[3], arg[5]);
+		if(!strcmp(arg[0], S_ADDUSER) || !strcmp(arg[0], "ADDUSER"))
+			userlist.addHandle(arg[1], 0, 0, arg[2], arg[3], arg[4]);
+
+		else
+			userlist.addHandle(arg[1], inet_addr(arg[4]), B_FLAGS, arg[2], arg[3], arg[5]);
+
 		h = userlist.findHandle(arg[1]);
+
 		if(h)
 		{
 			h->updated = 1;
@@ -474,6 +499,7 @@ int ul::parse(char *data)
 			h->creation = new ptime(arg[2], arg[3]);
         		return 1;
 		}
+
 		return 0;
 	}
 	if((!strcmp(arg[0], S_ADDHOST) || !strcmp(arg[0], "ADDHOST")) && strlen(arg[2]))
@@ -520,7 +546,7 @@ int ul::parse(char *data)
 	if(!strcmp(arg[0], S_RMCHAN) && strlen(arg[1]))
 	{
 		userlist.removeChannel(arg[1]);
-		net.irc.send("PART ", arg[1], " :", (const char *) config.partreason, NULL);
+		net.irc.send("PART %s :%s", arg[1], (const char *) set.PARTREASON);
 		return 1;
 	}
 
@@ -539,17 +565,19 @@ int ul::parse(char *data)
 
 	if((!strcmp(arg[0], S_SET) || !strcmp(arg[0], "SET")) && strlen(arg[2]))
 	{
-		set.setVariable(arg[1], arg[2]);
+		set.setVariable(arg[1], strlen(arg[3]) ? srewind(data, 2) : arg[2]);
 		return 1;
 	}
 	if((!strcmp(arg[0], S_CHSET) || !strcmp(arg[0], "CHSET")) && strlen(arg[3]))
 	{
 		int i = userlist.findChannel(arg[1]);
+
 		if(i != -1)
 		{
 			userlist.chanlist[i].chset->setVariable(arg[2], strlen(arg[4]) ? srewind(data, 3) : arg[3]);
 			return 1;
 		}
+
 		return 0;
 
 	}
@@ -576,6 +604,11 @@ int ul::parse(char *data)
 	if((!strcmp(arg[0], S_SN) || !strcmp(arg[0], "SN")) && strlen(arg[1]))
 	{
 		SN = strtoul(arg[1], 0, 10);
+		return 0;
+	}
+	if(!strcmp(arg[0], S_TIMESTAMP) && strlen(arg[1]))
+	{
+		timestamp = atol(arg[1]);
 		return 0;
 	}
 	if(!strcmp(arg[0], S_RJOIN) && strlen(arg[2]))
@@ -643,14 +676,30 @@ int ul::parse(char *data)
 		}
 		return 0;
 	}
+	if(!strcmp(arg[0], S_ADDADDR) && strlen(arg[2]))
+	{
+		HANDLE *h = userlist.findHandle(arg[1]);
+
+		if(h)
+			h->addr->add(arg[2]);
+		return 1;
+	}
+	if(!strcmp(arg[0], S_RMADDR) && strlen(arg[2]))
+	{
+		HANDLE *h = userlist.findHandle(arg[1]);
+
+		if(h)
+			h->addr->remove(arg[2]);
+		return 1;
+	}
 	int stick;
-	if(((stick = !strcmp(arg[0], S_ADDSTICK)) || !strcmp(arg[0], S_ADDSHIT) || (stick=!strcmp(arg[0], S_ADDINVITE)) || (stick=!strcmp(arg[0], S_ADDEXEMPT)) || (stick=!strcmp(arg[0], S_ADDREOP))) && strlen(arg[5]))
+	if(((stick = !strcmp(arg[0], S_ADDSTICK)) || !strcmp(arg[0], S_ADDBAN) || (stick=!strcmp(arg[0], S_ADDINVITE)) || (stick=!strcmp(arg[0], S_ADDEXEMPT)) || (stick=!strcmp(arg[0], S_ADDREOP))) && strlen(arg[5]))
 	{
 		chan *ch;
 		protmodelist::entry *s;
 		int type = -1;
 
-		if(!strcmp(arg[0], S_ADDSTICK) || !strcmp(arg[0], S_ADDSHIT))
+		if(!strcmp(arg[0], S_ADDSTICK) || !strcmp(arg[0], S_ADDBAN))
 			type = BAN;
 
 		else if(!strcmp(arg[0], S_ADDINVITE))
@@ -668,7 +717,7 @@ int ul::parse(char *data)
 			if(type == BAN && s)
 			{
 				foreachSyncedChannel(ch)
-					ch->applyShit(s);
+					ch->applyBan(s);
 			}
 		}
 		else
@@ -679,19 +728,19 @@ int ul::parse(char *data)
 				s = chanlist[i].protlist[type]->add(arg[2], arg[3], atol(arg[4]), atol(arg[5]), srewind(data, 6), stick);
 
 				if(type == BAN && s && (ch = ME.findChannel(arg[1])))
-					ch->applyShit(s);
+					ch->applyBan(s);
 			}
 		}
 		return 1;
 	}
-	if((!strcmp(arg[0], S_RMSHIT) || !strcmp(arg[0], S_RMINVITE) || !strcmp(arg[0], S_RMEXEMPT) || !strcmp(arg[0], S_RMREOP)) && strlen(arg[1]))
+	if((!strcmp(arg[0], S_RMBAN) || !strcmp(arg[0], S_RMINVITE) || !strcmp(arg[0], S_RMEXEMPT) || !strcmp(arg[0], S_RMREOP)) && strlen(arg[1]))
 	{
 		chan *ch;
 		protmodelist::entry *s;
 		char mode[3];
 		int type = -1;
 
-		if(!strcmp(arg[0], S_RMSHIT))
+		if(!strcmp(arg[0], S_RMBAN))
 			type = BAN;
 		else if(!strcmp(arg[0], S_RMINVITE))
 			type = INVITE;
@@ -746,7 +795,7 @@ void ul::sendToAll()
 {
 	int i;
 	for(i=0; i<net.max_conns; ++i)
-		if(net.conn[i].isRegBot() && net.conn[i].fd > 0 && !net.conn[i].isRedir())
+		if(net.conn[i].isRegBot() && net.conn[i].fd >= 0 && !net.conn[i].isRedir())
 			send(&net.conn[i]);
 }
 
@@ -803,7 +852,7 @@ void ul::reportNewOffences(inetconn *c, const bool showCmd)
 			if(hasReadAccess(c, h))
 			{
 				if(buf)
-					buf += "\002,\002 ";
+					buf += ", ";
 				buf += h->name;
 				count++;
 			}
@@ -811,13 +860,13 @@ void ul::reportNewOffences(inetconn *c, const bool showCmd)
 		h = h->next;
 	}
 	if(showCmd)
-		net.sendCmd(c, "offences", NULL);
+		net.send(HAS_N, "# %s # offences", c->name);
 
 	if(count)
-		c->send("New offences (\002", itoa(count), "\002)\002:\002 ", (const char *) buf, NULL);
+		c->send("New offences (%d): %s", count, (const char *) buf);
 	else
 	{
-		if(showCmd) c->send("No new offences found", NULL);
+		if(showCmd) c->send("No new offences found");
 	}
 }
 
@@ -835,7 +884,7 @@ void ul::sendUsers(inetconn *c)
 		if(i == GLOBAL)
 		{
 			if(c->checkFlag(HAS_N))
-				c->send("--- \002global users\002 ---", NULL);
+				c->send("--- global users ---");
 			else
 				continue;
 
@@ -862,7 +911,7 @@ void ul::sendUsers(inetconn *c)
 				{
 					++count;
 					if(buf)
-						buf += "\002,\002 ";
+						buf += ", ";
 					buf += h->name;
 				}
 				h = h->next;
@@ -872,10 +921,10 @@ void ul::sendUsers(inetconn *c)
 			{
 				if(send_chan)
 				{
-					c->send("--- \002", (const char *) chanlist[i].name, "\002 users ---", NULL);
+					c->send("--- %s users ---", (const char *) chanlist[i].name);
 					send_chan = false;
 				}
-				c->send(ft->desc, " (\002", itoa(count), "\002)\002:\002 ", (const char *) buf, NULL);
+				c->send("%s (%d): %s", ft->desc, count, (const char *) buf);
 				send_chan = false;
 			}
 			not_flags |= ft->flag;
@@ -895,14 +944,14 @@ void ul::sendUsers(inetconn *c)
 				{
 					++count;
 					if(buf)
-						buf += "\002,\002 ";
+						buf += ", ";
 					buf += h->name;
 				}
 				h = h->next;
 			}
 
 			if(count)
-				c->send("no flags (\002", itoa(count), "\002)\002:\002 ", (const char *) buf, NULL);
+				c->send("no flags (%d): %s", count, (const char *) buf);
 		}
 	}
 }
@@ -913,8 +962,8 @@ void ul::autoSave(int notice)
 	{
 		save(config.userlist_file);
 		nextSave = 0;
-		if(config.bottype == BOT_MAIN && notice)
-			net.send(HAS_N, "[*] Autosaving userlist", NULL);
+//		if(config.bottype == BOT_MAIN && notice)
+//			net.send(HAS_N, "Autosaving userlist");
 		ME.recheckFlags();
 	}
 }
@@ -1068,6 +1117,11 @@ HANDLE *ul::checkPartylinePass(const char *username, const char *pass, int flags
 		return NULL;
 }
 
+/* missing.
+ *
+ * \author Esio <esio@hoth.amu.edu.pl>
+ */
+
 bool ul::isIdiot(const char *mask, int channum) const
 {
 	if(HAS_D & (first->flags[MAX_CHANNELS] | first->flags[channum]))
@@ -1082,7 +1136,7 @@ bool ul::isIdiot(const char *mask, int channum) const
 
 bool ul::globalChset(inetconn *c, const char *var, const char *value, int *index)
 {
-	int i, updated = 0;
+	int i, _updated = 0;
 	options::event *e;
 
 	for(i=0; i<MAX_CHANNELS; ++i)
@@ -1091,27 +1145,27 @@ bool ul::globalChset(inetconn *c, const char *var, const char *value, int *index
 		{
 			e = chanlist[i].chset->setVariable(var, value);
 
-			if(c && !updated)
+			if(c && !_updated)
 			{
 				if(e->ok)
 				{
-					net.sendCmd(c, "gset ", e->entity->print(), NULL);
+					net.send(HAS_N, "# %s # gset %s",c->name, e->entity->print());
 					/* compatybylity reasons */
 					if(index != NULL && *index == -1) *index = i;
 				}
-				c->send("gset: ", (const char *) e->reason, NULL);
+				c->send("gset: %s", (const char *) e->reason);
 			}
 
 			if(!e->ok)
 				return 0;
 
-			updated = 1;
+			_updated = 1;
 		}
 	}
-	if(!updated)
+	if(!_updated)
 	{
 		if(c)
-			c->send("gset: I dont have any channels in my list", NULL);
+			c->send("gset: I dont have any channels in my list");
 
 		return 0;
 	}
@@ -1135,13 +1189,10 @@ int ul::rpart(const char *bot, const char *channel, const char *flags)
 	if(!strcmp(bot, config.handle))
 	{
 		if(!strchr(flags, 'Q'))
-			net.send(HAS_N, "[*] Parting from ", channel, NULL);
+			net.send(HAS_N, "Parting from %s", channel);
 
 		if(ME.findNotSyncedChannel(channel))
-		{
-			net.irc.send("PART ", channel, " :", (const char *) config.partreason, NULL);
-			penalty += 5;
-		}
+			net.irc.send("PART %s :%s", channel, (const char *) set.PARTREASON);
 	}
 	return n;
 }
@@ -1160,9 +1211,9 @@ int ul::rjoin(const char *bot, const char *channel)
 	if(!strcmp(bot, config.handle) && !ulbuf)
 	{
 		if(net.irc.status & STATUS_REGISTERED)
-			net.send(HAS_N, "[*] Joining ", channel, NULL);
+			net.send(HAS_N, "Joining %s", channel);
 		else
-			net.send(HAS_N, "[*] Joining ", channel, " (wtf? i am not on irc)", NULL);
+			net.send(HAS_N, "Joining %s (wtf? i am not on irc)", channel);
 	}
 	return n;
 }
@@ -1205,9 +1256,6 @@ int ul::addChannel(const char *name, const char *pass, const char *attr)
 	}
 
 	added:
-	if(strchr(attr, 'T'))
-		chanlist[i].chset->TAKEOVER = 1;
-
 	if(strchr(attr, 'P'))
 	{
 		chanlist[i].status |= PRIVATE_CHAN;
@@ -1311,6 +1359,10 @@ void ul::update()
 
 	set.reset();
 
+	// FIXME: "idiots" is not cleared
+	// so slaves/leafs can still have older offences when they link back (reported by matrix)
+	// -- patrick
+
 	while(h)
 	{
 		cleanHandle(h);
@@ -1364,7 +1416,7 @@ void ul::update()
 		if(net.conn[n].fd && net.conn[n].isRegBot() && !(net.conn[n].status & STATUS_REDIR)) ++n;
 	}
 
-	net.hub.send(S_ULOK, " ", itoa(n), NULL);
+	net.hub.send("%s %d", S_ULOK, n);
 	nextSave = 0;
 	save(config.userlist_file);
 	HOOK(userlistLoaded, userlistLoaded());
@@ -1380,7 +1432,7 @@ void ul::send(inetconn *c)
 	char buf[MAX_LEN];
 	int strip = isLeaf(c->handle);
 
-	c->send(S_UL_UPLOAD_START, NULL);
+	c->send("%s", S_UL_UPLOAD_START);
 
 	HANDLE *h = first->next->next;
 
@@ -1403,8 +1455,9 @@ void ul::send(inetconn *c)
 	set.sendToFile(c, S_SET);
 
 	sprintf(buf, "%llu", SN);
-	c->send(S_SN, " ", buf, NULL);
-	c->send(S_UL_UPLOAD_END, NULL);
+	c->send("%s %s", S_SN, buf);
+	c->send("%s %ld", S_TIMESTAMP, userlist.timestamp);
+	c->send("%s", S_UL_UPLOAD_END);
 }
 
 HANDLE *ul::checkBotMD5Digest(unsigned int ip, const char *digest, const char *authstr)
@@ -1450,6 +1503,7 @@ bool ul::isBot(const HANDLE *h)
 	return h && h->flags[MAX_CHANNELS] & HAS_B;
 }
 
+// isBot for obsolete chaddr
 bool ul::isBot(unsigned int ip)
 {
 	HANDLE *h = first;
@@ -1457,8 +1511,45 @@ bool ul::isBot(unsigned int ip)
 	while(h)
 	{
 		if(isBot(h) && h->ip == ip) return true;
+		
 		h = h->next;
 	}
+	return false;
+}
+
+/* missing.
+ *
+ * \author patrick <patrick@psotnic.com>
+ */
+
+bool ul::isBotByFD(int fd)
+{
+	inetconn *c=new inetconn;
+	bool ret;
+	c->fd=fd;
+	ret=isBotByAddr(c->getPeerPortName());
+	free(c);
+	return ret;
+}
+
+/* missing.
+ *
+ * \author patrick <patrick@psotnic.com>
+ */
+
+bool ul::isBotByAddr(const char *ip)
+{
+	HANDLE *h;
+
+	for(h = first; h; h=h->next)
+	{
+		if(isBot(h))
+		{
+			if(h->addr->match(ip))
+				return true;
+		}
+	}
+
 	return false;
 }
 
@@ -1511,9 +1602,9 @@ int ul::getFlags(const char *mask, const chan *ch)
 void ul::send(inetconn *c, CHANLIST *ch)
 {
 	if(ch->status & PRIVATE_CHAN)
-		c->send(S_ADDCHAN, " P ", (const char *) ch->name, " ", (const char *) ch->pass, NULL);
+		c->send("%s P %s %s", S_ADDCHAN, (const char *) ch->name, (const char *) ch->pass);
 	else
-		c->send(S_ADDCHAN, " * ", (const char *) ch->name, " ", (const char *) ch->pass, NULL);
+		c->send("%s * %s %s", S_ADDCHAN, (const char *) ch->name, (const char *) ch->pass);
 
 	pstring<> prefix(S_CHSET);
 	prefix += " ";
@@ -1531,35 +1622,36 @@ void ul::send(inetconn *c, HANDLE *h, int strip)
 		int i;
 		char buf[MAX_LEN];
 
-		if(isBot(h)) c->send(S_ADDBOT, " ", h->name, " ",  h->creation->print(), " ", strip ? "-" : inet2char(h->ip), " ", c->status & STATUS_FILE ? h->createdBy : NULL, NULL);
-		else c->send(S_ADDUSER, " ", h->name, " ", h->creation->print(), " ", c->status & STATUS_FILE ? h->createdBy : NULL, NULL);
+		if(isBot(h)) c->send("%s %s %s %s %s", S_ADDBOT, h->name, h->creation->print(), strip ? "-" : inet2char(h->ip), c->status & STATUS_FILE ? h->createdBy : "");
+
+		else c->send("%s %s %s %s", S_ADDUSER, h->name, h->creation->print(),  c->status & STATUS_FILE ? h->createdBy : "");
 
 		if(h->flags[MAX_CHANNELS])
 		{
 			flags2str(h->flags[MAX_CHANNELS], buf);
-			c->send(S_CHATTR, " ", h->name, " ", buf, NULL);
+			c->send("%s %s %s", S_CHATTR, h->name, buf);
 		}
 		if(!isBot(h))
 		{
 			for(i=0; i<MAX_HOSTS; i++)
-				if(h->host[i]) c->send(S_ADDHOST, " ", h->name, " ", h->host[i], " ", c->status & STATUS_FILE ? h->hostBy[i] : NULL, NULL);
+				if(h->host[i]) c->send("%s %s %s %s", S_ADDHOST, h->name, h->host[i], c->status & STATUS_FILE ? h->hostBy[i] : "");
 
 			for(i=0; i<MAX_CHANNELS; ++i)
 			{
 				if(chanlist[i].name && h->flags[i])
 				{
 					flags2str(h->flags[i], buf);
-					c->send(S_CHATTR, " ", h->name, " ", buf, " ", (const char *) chanlist[i].name, NULL);
+					c->send("%s %s %s %s", S_CHATTR, h->name, buf, (const char *) chanlist[i].name);
 				}
 			}
 		}
 		else
 		{
 			for(i=0; i<MAX_HOSTS-1; i++)
-				if(h->host[i]) c->send(S_ADDHOST, " ", h->name, " ", h->host[i], " ", c->status & STATUS_FILE ? h->hostBy[i] : NULL, NULL);
+				if(h->host[i]) c->send("%s %s %s %s", S_ADDHOST, h->name, h->host[i], c->status & STATUS_FILE ? h->hostBy[i] : "");
 
 			if(h->host[MAX_HOSTS-1] && c->isRegBot())
-				c->send(S_PROXYHOST, " ", h->name, " ", h->host[MAX_HOSTS-1], NULL);
+				c->send("%s %s %s", S_PROXYHOST, h->name, h->host[MAX_HOSTS-1]);
 
 			if(h->channels)
 			{
@@ -1571,19 +1663,19 @@ void ul::send(inetconn *c, HANDLE *h, int strip)
 						a = push(a, chanlist[i].name, " ", NULL);
 				if(a)
 				{
-					c->send(S_RJOIN, " ", h->name, " ", a, NULL);
+					c->send("%s %s %s", S_RJOIN, h->name, a);
 					free(a);
 				}
 			}
 		}
-		if(h->pass && strip ? !isBot(h) : 1) c->send(S_PASSWD, " ", h->name, " ", quoteHexStr(h->pass, buf), NULL);
+		if(h->pass && strip ? !isBot(h) : 1) c->send("%s %s %s", S_PASSWD, h->name, quoteHexStr(h->pass, buf));
 		if(h->info && c->status & STATUS_FILE)
 		{
 			ptrlist<comment::entry>::iterator e = h->info->data.begin();
 
 			while(e)
 			{
-				c->send(S_ADDINFO, " ", h->name, " ", e->key, " ", e->value, NULL);
+				c->send("%s %s %s %s", S_ADDINFO, h->name, e->key, e->value);
 				e++;
 			}
 		}
@@ -1593,11 +1685,14 @@ void ul::send(inetconn *c, HANDLE *h, int strip)
 
 			while(e)
 			{
-				c->send(S_ADDOFFENCE, " ", h->name, " ", e->chan, " ", itoa(e->time), " ", itoa(e->count), " ", itoa(e->fromFlags), " ", itoa(e->toFlags), " ", e->global ? "1" : "0", " ", e->mode, NULL);
+				c->send("%s %s %s %s %s %s %s %s %s", S_ADDOFFENCE, h->name, e->chan, itoa(e->time), itoa(e->count), itoa(e->fromFlags), itoa(e->toFlags), e->global ? "1" : "0", e->mode);
 			    e++;
 			}
 		}
 
+		if(!c->isLeaf())
+			for(ptrlist<HANDLE::ADDR::entry>::iterator ip=h->addr->data.begin(); ip; ip++)
+				c->send("%s %s %s", S_ADDADDR, h->name, ip->ip);
 	}
 }
 
@@ -1608,12 +1703,12 @@ bool ul::save(const char *file, const int cypher, const char *key)
 	HANDLE *h = first;
 	int i;
 
-	if(config.bottype == BOT_LEAF) return true;
+	if(!config.save_userlist) return true;
 	if(!SN) return false;
 
 	if((uf.open(file, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) < 1)
 	{
-		net.send(HAS_N, "[-] Cannot open ", file, " for writing: ", strerror(errno), NULL);
+		net.send(HAS_N, "[-] Cannot open %s for writing: %s for writing: ", file, strerror(errno));
 		nextSave = NOW + SAVEDELAY;
 		return false;
 	}
@@ -1629,9 +1724,9 @@ bool ul::save(const char *file, const int cypher, const char *key)
 	}
 	else
 	{
-		uf.send("# Userlist generated by ", S_BOTNAME, " version ", S_VERSION, ".", NULL);
-		uf.send("# Please do not hand edit.", NULL);
-		uf.send("#                       Thank you --pks", NULL);
+		uf.send("# Userlist generated by %s version %s.", S_BOTNAME, S_VERSION);
+		uf.send("# Please do not hand edit.");
+		uf.send("#                       Thank you --pks");
 	}
 	for(i=0; i<MAX_CHANNELS; ++i)
 		if(chanlist[i].name) send(&uf, &chanlist[i]);
@@ -1650,7 +1745,8 @@ bool ul::save(const char *file, const int cypher, const char *key)
 		dset->sendToFile(&uf, S_DSET);
 
 	sprintf(buf, "%llu", SN);
-	uf.send(S_SN, " ", buf, NULL);
+	uf.send("%s %s", S_SN, buf);
+	uf.send("%s %ld", S_TIMESTAMP, userlist.timestamp);
 
 	nextSave = 0;
 	return true;
@@ -1764,7 +1860,15 @@ int ul::str2botFlags(const char *str)
 
 int ul::changeFlags(HANDLE *p, const char *flags, int channum, inetconn *c)
 {
-	if(c && (!userlist.hasWriteAccess(c, p) || !c->checkFlag(HAS_N)))
+	if(c && channum != GLOBAL && (c->checkFlag(HAS_N) || c->checkFlag(HAS_N, channum)))
+        {
+            // allow global/local +n to change flags of everyone for that channel
+            // unless that user has +n too -- patrick
+            if((p->flags[GLOBAL] & HAS_N || p->flags[channum] & HAS_N) && !userlist.hasWriteAccess(c, p))
+                return -3;
+        }
+
+	else if(c && (!userlist.hasWriteAccess(c, p) || !c->checkFlag(HAS_N) || (channum != GLOBAL && !c->checkFlag(HAS_N, channum))))
 		return -3;
 
 	unsigned int f = p->flags[channum];
@@ -1798,11 +1902,14 @@ int ul::changeFlags(HANDLE *p, const char *flags, int channum, inetconn *c)
 			/* thats me ? */
 			if(c->handle == p)
 			{
-				if(!c->checkFlag(HAS_X) && (f & (HAS_X | HAS_Z)))
+				// local +n can change his flags for a channel
+				if(channum != GLOBAL && c->checkFlag(HAS_N, channum))
+					;
+				else if(!c->checkFlag(HAS_X) && (f & (HAS_X | HAS_Z)))
 					return -3;
-				if(!c->checkFlag(HAS_S) && f & HAS_S)
+				else if(!c->checkFlag(HAS_S) && f & HAS_S)
 					return -3;
-				if(!c->checkFlag(HAS_N) && f & HAS_N)
+				else if(!c->checkFlag(HAS_N) && f & HAS_N)
 					return -3;
 			}
 			else
@@ -2048,6 +2155,8 @@ HANDLE *ul::addHandle(const char *name, unsigned int ip, int flags, const char *
 
 	if(by && *by) mem_strcpy(last->createdBy, by);
 
+	last->addr=new HANDLE::ADDR();
+
 	nextSave = NOW + SAVEDELAY;
 
 	return last;
@@ -2059,6 +2168,7 @@ ul::ul()
 	first = last = NULL;
 	bots = users = 0;
 	SN = 0;
+	timestamp = 0;
 	nextSave = 0;
 	ulbuf = NULL;
 
@@ -2131,6 +2241,8 @@ void ul::destroy(HANDLE *p)
 		free(p->createdBy);
 	if(p->info)
 		delete p->info;
+	if(p->addr)
+		delete p->addr;
 	delete(p);
 }
 
@@ -2236,6 +2348,11 @@ void ul::decrementFlags(HANDLE *h, int channum, unsigned int number)
 		h->flags[channum] = levelFlags(dif);
 }
 
+/* missing.
+ *
+ * \author Esio <esio@hoth.amu.edu.pl>
+ */
+
 int ul::punishIdiot(HANDLE *h, int channum, unsigned int number)
 {
 	if(!number) return 1;
@@ -2303,12 +2420,22 @@ HANDLE *ul::findHandleByHost(const char *host, const int channum) const
 	return ret;
 }
 
+/* missing.
+ *
+ * \author Esio <esio@hoth.amu.edu.pl>
+ */
+
 int ul::addIdiot(const char *mask, const char *channel, const char *reason, const char *number)
 {
 	if(_isnumber(number))
 		return addIdiot(mask, channel, reason, (unsigned int) atoi(number));
 	return -2;
 }
+
+/* missing.
+ *
+ * \author Esio <esio@hoth.amu.edu.pl>
+ */
 
 int ul::addIdiot(const char *mask, const char *channel, const char *reason, unsigned int number)
 {
@@ -2336,25 +2463,24 @@ int ul::addIdiot(const char *mask, const char *channel, const char *reason, unsi
 
 		if((i = addHost(first, buf, config.handle, NOW)) != -1)
 		{
-			net.send(HAS_N, "New offence", (number == 1) ? " " : "s ", "spoted on \002", (const char*) channel, "\002 from \002", mask, "\002: ", reason, NULL);
+			net.send(HAS_N, "New offence%s spoted on %s from %s: %s", (number == 1) ? "" : "s", (const char*) channel,  mask, reason);
 
-			net.send(HAS_N, "Adding host `\002", buf, "\002' to handle `\002", first->name, "\002'", NULL);
-			net.send(HAS_B, S_ADDHOST, " ", first->name, " ", buf, NULL);
+			net.send(HAS_N, "Adding host %s to handle %s", buf, first->name);
+			net.send(HAS_B, "%s %s %s", S_ADDHOST, first->name, buf);
 
 			if(!h->history) h->history = new offence;
 
 			snprintf(buf2, MAX_LEN, "%s (by %s)", reason, mask);
 			if(h->history->add((const char *) channel, (const char *) buf2, NOW, number, 0, HAS_D))
 			{
-				//net.send(HAS_S, S_ADDOFFENCE, " ", first->name, " ", channel, " ", itoa(NOW), " 0 ", atoi(HAS_D), " 1 ", buf2, NULL);
-				++userlist.SN;
-				userlist.nextSave = NOW + SAVEDELAY;
+				//net.send(HAS_S, "%s %s %s %s %s %s %s %s", S_ADDOFFENCE, first->name, channel, itoa(NOW), " 0 ", atoi(HAS_D), " 1 ", buf2);
+				userlist.updated();
 				//ME.nextRecheck = NOW + SAVEDELAY;
 			}
                 }
 //		else /* it may be reason of flood on partyline when PUNISH_BOTS value is really high */
 //		{
-//		    net.send(HAS_N, "Host `\002", buf, "\002' exists for handle `\002", first->name, "\002'", NULL);
+//		    net.send(HAS_N, "Host %s exists for handle %s", buf, first->name);
 //		}
 		delete user;
                 return (i != -1) ? 0 : 2;
@@ -2382,7 +2508,7 @@ int ul::addIdiot(const char *mask, const char *channel, const char *reason, unsi
 	else
 		i = h->flags[GLOBAL];
 
-	net.send(HAS_N, "New offence", (number == 1) ? " " : "s ", "spoted on \002", (const char*) channel, "\002 from \002", h->name, "\002: ", reason, NULL);
+	net.send(HAS_N, "\0034New offence%s spoted on %s from %s: %s\003", (number == 1) ? "" : "s", (const char*) channel, h->name, reason);
 
 	if(!punishIdiot(h, chnum, number)) // we've changded some flags
 	{
@@ -2391,14 +2517,14 @@ int ul::addIdiot(const char *mask, const char *channel, const char *reason, unsi
 		if(value != 5)
 		{
 			userlist.flags2str(h->flags[chnum], buf);
-			net.send(HAS_N, "Changing \002", channel, "\002 flags for `\002", h->name, "\002' to `\002", buf, "\002'", NULL);
-			net.send(HAS_B, S_CHATTR, " ", h->name, " -", buf2, "+", buf, " ", channel, NULL);
+			net.send(HAS_N, "\0034Changing %s flags for %s to `%s'\003", channel, h->name, buf);
+			net.send(HAS_B, "%s %s -%s+%s %s", S_CHATTR, h->name, buf2, buf, channel);
 		}
 		else
 		{
 			userlist.flags2str(h->flags[GLOBAL], buf);
-			net.send(HAS_N, "Changing Global flags for `\002", h->name, "\002' to `\002", buf, "\002'", NULL);
-			net.send(HAS_B, S_CHATTR, " ", h->name, " -", buf2, "+", buf, NULL);
+			net.send(HAS_N, "\0034Changing Global flags for %s to `%s'\003", h->name, buf);
+			net.send(HAS_B, "%s %s -%s+%s %s", S_CHATTR, h->name, " -", buf2, "+", buf);
 
 			for(int j = 0; j < MAX_CHANNELS; j++)
 			{
@@ -2406,34 +2532,39 @@ int ul::addIdiot(const char *mask, const char *channel, const char *reason, unsi
 				{
 					if(h->flags[j] && h->flags[j] != HAS_D) //user has flags and dont has +d
 					{
-						net.send(HAS_N, "Changing \002", (const char *) userlist.chanlist[j].name, "\002 flags for `\002", h->name, "\002' to `\002-\002'", NULL);
+						net.send(HAS_N, "\0034Changing %s flags for %s to `-'\003", (const char *) userlist.chanlist[j].name, h->name);
 
 						h->flags[j] = 0; // no flags
-						net.send(HAS_B, S_CHATTR, " ", h->name, " - ", (const char *) userlist.chanlist[j].name, NULL);
-						++userlist.SN;
+						net.send(HAS_B, "%s %s - %s", S_CHATTR, h->name, (const char *) userlist.chanlist[j].name);
+						userlist.updated();
 					}
 				}
 			}
 		}
 
-		++userlist.SN;
+		userlist.updated();
 	}
 
 	if(value != 5)
 	{
 		h->history->add((const char *) channel, (const char *) reason, NOW, number, i, h->flags[chnum]);
-		//net.send(HAS_S, S_ADDOFFENCE, " ", h->name, " ", channel, " ", itoa(NOW), " ", itoa(i), " ", itoa(h->flags[chnum]), " 0 ", reason, NULL);
+		//net.send(HAS_S, "%s %s %s %s %s %s %s %s", S_ADDOFFENCE, h->name, channel, itoa(NOW), itoa(i), itoa(h->flags[chnum]), " 0 ", reason);
 	}
 	else
 	{
 		h->history->add((const char *) channel, (const char *) reason, NOW, number, i, h->flags[GLOBAL], true);
-		//net.send(HAS_S, S_ADDOFFENCE, " ", h->name, " ", channel, " ", itoa(NOW), " ", itoa(i), " ", itoa(h->flags[chnum]), " 1 ", reason, NULL);
+		//net.send(HAS_S, "%s %s %s %s %s %s %s %s", S_ADDOFFENCE, h->name, channel, itoa(NOW), itoa(i), itoa(h->flags[chnum]), " 1 ", reason);
 	}
 	//ME.nextRecheck = NOW + SAVEDELAY;
         userlist.nextSave = NOW + SAVEDELAY;
 
 	return 0;
 }
+
+/* missing.
+ *
+ * \author Esio <esio@hoth.amu.edu.pl>
+ */
 
 unsigned int ul::offences() const
 {
@@ -2446,4 +2577,114 @@ unsigned int ul::offences() const
 		h = h->next;
 	}
 	return i;
+}
+
+/* missing.
+ *
+ * \author patrick <patrick@psotnic.com>
+ */
+
+HANDLE::ADDR::ADDR()
+{
+    data.removePtrs();
+}
+
+/* missing.
+ *
+ * \author patrick <patrick@psotnic.com>
+ */
+
+void HANDLE::ADDR::add(const char *_ip)
+{
+    entry *e;
+
+    if(!_ip || *_ip == '\0')
+       return;
+
+    e=new entry();
+    strncpy(e->ip, _ip, MAX_LEN-1);
+    e->ip[MAX_LEN-1]='\0';
+    data.add(e);
+}
+
+/* missing.
+ *
+ * \author patrick <patrick@psotnic.com>
+ */
+
+HANDLE::ADDR::entry *HANDLE::ADDR::find(const char *_ip)
+{
+    ptrlist<HANDLE::ADDR::entry>::iterator ip;
+
+    if(!_ip || *_ip == '\0')
+        return NULL;
+
+    for(ip=data.begin(); ip; ip++)
+    {
+        if(!strcmp(ip->ip, _ip))
+            return ip;
+    }
+    
+    return NULL;
+}
+
+/* missing.
+ *
+ * \author patrick <patrick@psotnic.com>
+ */
+
+bool HANDLE::ADDR::remove(const char *_ip)
+{
+    entry *e;
+
+    if(!_ip || *_ip == '\0')
+        return false;
+
+    e=find(_ip);
+
+    if(e)
+    {
+        data.remove(e);
+        return true;
+    }
+
+    return false;
+}
+
+/* missing.
+ *
+ * \author patrick <patrick@psotnic.com>
+ */
+
+bool HANDLE::ADDR::match(const char *_ip)
+{
+    ptrlist<HANDLE::ADDR::entry>::iterator ip;
+
+    if(!_ip || *_ip == '\0')
+        return false;
+
+    if(data.entries() == 0)
+        return true;
+
+    for(ip=data.begin(); ip; ip++)
+    {
+        if(matchIp(ip->ip, _ip))
+            return true;
+    }
+
+    return false;
+}
+
+/* missing.
+ *
+ * \author patrick <patrick@psotnic.com>
+ */
+
+void ul::updated(bool save)
+{
+    timestamp=NOW;
+    userlist.SN++;
+
+    if(save)
+        userlist.nextSave = NOW + SAVEDELAY;
 }

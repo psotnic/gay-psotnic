@@ -20,12 +20,15 @@
 
 #include "prots.h"
 #include "global-var.h"
+#include <sstream>
 
 #define __itoa_num		16
 char __itoa[16][16];
 
 #define __timestr_num	16
 char __timestr[256][16];
+
+void tempCompatCheck(inetconn *c);
 
 #ifdef HAVE_DEBUG
 void doCryptoTests()
@@ -190,6 +193,9 @@ int imUp()
 	if(atoi(pid) == getpid())
 		return 0;
 
+	// FIXME: some cronjob will send SIGHUP all time
+	// which causes the bot to save the userlist etc
+	// -- patrick
 	return !kill(atoi(pid), SIGHUP);
 }
 
@@ -258,7 +264,7 @@ void lurk()
 			char buf[MAX_LEN];
 			snprintf(buf, MAX_LEN, "pid.%s", (const char *) config.handle);
 			p.open(buf, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
-			p.send(itoa(getpid()), NULL);
+			p.send("%d", getpid());
 			return;
 		}
 		else
@@ -334,9 +340,9 @@ void parse_cmdline(int argc, char *argv[])
 	if(argc == 1)
 	{
 #ifdef HAVE_DEBUG
-		printf("Syntax: %s [-v] [-a] [-d] [-p] [-u] [-n] [-c|T decrypted config] [crypted config]\n", argv[0]);
+		printf("Syntax: %s [-v] [-a] [-d] [-u] [-n] [-ne] [T decrypted config] [crypted config]\n", argv[0]);
 #else
-		printf("Syntax: %s [-v] [-a] [-p] [-n] [-c decrypted config] [crypted config]\n", argv[0]);
+		printf("Syntax: %s [-v] [-a] [-n] [-ne] [crypted config]\n", argv[0]);
 #endif
 		exit(1);
 	}
@@ -357,22 +363,23 @@ void parse_cmdline(int argc, char *argv[])
 
 		if(!strcmp(argv[i], "-p"))
 		{
-			char hash[33];
+			printf("Please use '%s -n' instead\n", argv[0]);
+/*			char hash[33];
 			printMessage("Bot is now running in MD5 hash generator mode");
 			pstring<> toHash;
 			readUserInput("String to hash", toHash);
 			MD5HexHash(hash, toHash, toHash.len(), NULL, 0);
 			printMessage("MD5 hash      : %s\n", hash);
-			
+*/			
 			exit(0);
 		}
 #ifdef HAVE_DEBUG
 		else if(!strcmp(argv[i], "-d")) debug = 1;
-		else if(!strcmp(argv[i], "-u"))
+		/*else if(!strcmp(argv[i], "-u"))
 		{
 			psotget.doUpdate(argv[i] ? argv[i+1] : "");
 			exit(0);
-		}
+		}*/
 		else if(!strcmp(argv[i], "--crypto-tests"))
 		{
 			doCryptoTests();
@@ -381,9 +388,18 @@ void parse_cmdline(int argc, char *argv[])
 #endif
 
 		else if(!strcmp(argv[i], "-v")) exit(0);
-		else if(!strcmp(argv[i], "-c")) creation = 1;
+
+		else if(!strcmp(argv[i], "-c"))
+		{
+			printf("Please use '%s -n' instead\n", argv[0]);
+			exit(0);
+		}
+
 		else if(!strcmp(argv[i], "-n"))
 			createInitialConfig();
+
+		else if(!strcmp(argv[i], "-ne"))
+			createInitialConfig(true);
 
 #ifdef HAVE_DEBUG
 		else if(!strcmp(argv[i], "-T")) decrypted = true;
@@ -622,39 +638,45 @@ void sendLogo(inetconn *c)
 
 	uname(&name);
 
-	c->send("", NULL);
-	c->send("\002    _/_/_/   _/_/_/   _/_/_/  _/_/_/_/ _/      _/  _/   _/_/_/\002", NULL);
-	c->send("\002   _/   _/ _/       _/    _/    _/    _/_/    _/  _/  _/\002", NULL);
-	c->send("\002  _/_/_/   _/_/_/  _/    _/    _/    _/  _/  _/  _/  _/\002", NULL);
-	c->send("\002 _/            _/ _/    _/    _/    _/    _/_/  _/  _/\002", NULL);
-	c->send("\002_/       _/_/_/   _/_/_/     _/    _/      _/  _/   _/_/_/\002", NULL);
-	c->send("", NULL);
-	c->send("   Copyright (c) 2003-2007 Grzegorz Rusin <grusin@gmail.com>", NULL);
-	c->send("       Please donate at http://psotnic.sf.net/donate", NULL);
-	c->send("", NULL);
+	c->send("");
+	c->send("    _/_/_/   _/_/_/   _/_/_/  _/_/_/_/ _/      _/  _/   _/_/_/");
+	c->send("   _/   _/ _/       _/    _/    _/    _/_/    _/  _/  _/");
+	c->send("  _/_/_/   _/_/_/  _/    _/    _/    _/  _/  _/  _/  _/");
+	c->send(" _/            _/ _/    _/    _/    _/    _/_/  _/  _/");
+	c->send("_/       _/_/_/   _/_/_/     _/    _/      _/  _/   _/_/_/");
+	c->send("");
+	c->send("   Copyright (c) 2003-2007 Grzegorz Rusin <grusin@gmail.com>");
+	c->send("   Copyright (C) 2009-2010 psotnic.com development team");
+	c->send("");
 
 	if(c->checkFlag(HAS_N))
 	{
 		unsigned int i = userlist.offences();
 		
-		c->send("Psotnic version: \002", S_VERSION , "\002", NULL);
-		c->send("Local time: \002", timestr, "\002", NULL);
-		c->send("Machine info: \002", name.sysname, " ", name.release, " ", name.machine, "\002", NULL);
-		c->send("Owners on-line: \002", itoa(net.owners()), "\002 (type .owners to see list)", NULL);
-		c->send("Bots on-line: \002", itoa(net.bots() + 1), "\002 (type .upbots to see list)", NULL);
+		c->send("%s version: %s", S_BOTNAME, S_VERSION);
+		c->send("Local time: %s", timestr);
+		c->send("Machine info: %s %s %s", name.sysname, name.release, name.machine);
+		c->send("Owners on-line: %d (type .owners to see list)", net.owners());
+		c->send("Bots on-line: %d (type .upbots to see list)", net.bots() + 1);
 		if(i)
-		    c->send("New offences: \002", itoa(i), "\002 (type .offences to see list)", NULL);
-		c->send("", NULL);
-		net.send(HAS_N, "[*] ", c->name, " has joined the partyline", NULL);
-		net.propagate(NULL, S_CHKHOST, " ", c->name, NULL);
+		    c->send("New offences: %d (type .offences to see list)", i);
+		c->send("");
+		net.send(HAS_N, "%s has joined the partyline", c->name);
+		ME.checkMyHost(c->name);
+		net.propagate(NULL, "%s %s", S_CHKHOST, c->name);
+		tempCompatCheck(c);
+
+		if(updateNotify)
+			net.sendOwner(c->name, "I have been updated and need to be restarted");
+
 	}
 	else if(c->checkFlag(HAS_P))
 	{
-		net.send(HAS_P, "[*] ", c->name, " has joined the partyline", NULL);
+		net.send(HAS_P, "%s has joined the partyline", c->name);
 	}
 	else
 	{
-		net.send(HAS_N, "[!] ", c->name, " has hacked into the partyline", NULL);
+		net.send(HAS_N, "\002%s has hacked into the partyline\002", c->name);
 		c->close("Fuckin' hacka");
 	}
 }
@@ -678,6 +700,7 @@ int doConnect6(const char *server, int port, const char *vhost, int noblock)
 
 	if(bind(s, (struct sockaddr *) &sin6, sizeof (sin6)) == -1)
 	{
+		net.send(HAS_N, "Cannot bind() to %s: %s", (vhost && *vhost) ? vhost : "in6addr_any", strerror(errno));
 		killSocket(s);
 		return -1;
 	}
@@ -689,6 +712,7 @@ int doConnect6(const char *server, int port, const char *vhost, int noblock)
 
 	if(noblock == -1 && fcntl(s, F_SETFL, O_NONBLOCK) == -1)
 	{
+		net.send(HAS_N, "fcntl() failed: %s", strerror(errno));
 		killSocket(s);
 		return -1;
 	}
@@ -714,13 +738,13 @@ void propaganda()
 {
 	printf("\n");
 #ifdef HAVE_IPV6
-	printf("Psotnic C++ edition, version %s-ipv6 (rev: %s, build: %s %s)", S_VERSION, SVN_REVISION, __DATE__, __TIME__);
+	printf("%s, version %s-ipv6 (rev: %s, build: %s %s)", S_BOTNAME, S_VERSION, SVN_REVISION, __DATE__, __TIME__);
 #else
-	printf("Psotnic C++ edition, version %s (rev: %s build: %s %s)", S_VERSION, SVN_REVISION, __DATE__, __TIME__);
+	printf("%s, version %s (rev: %s build: %s %s)", S_BOTNAME, S_VERSION, SVN_REVISION, __DATE__, __TIME__);
 #endif
 	printf("\n");
-	printf(S_COPYRIGHT);
-	printf("\nIf you find this software useful please donate at http://psotnic.sf.net/donate\n");
+	printf("Copyright (C) 2003-2007 Grzegorz Rusin <grusin@gmail.com>\n");
+	printf("Copyright (C) 2009 psotnic.com development team\n");
 	printf("\n");
 }
 
@@ -731,10 +755,11 @@ bool extendhost(const char *host, char *buf, unsigned int len)
 	if(strlen(host) + 10 > len || !isRealStr(host) || *host == '#')
 		return false;
 
-	ex = (char *) strchr(host, '!');
-	at = (char *) strchr(host, '@');
+	ex = strchr((char *)host, '!');
+	at = strchr((char *)host, '@');
 
-	if(ex != strrchr(host, '!') || at != strrchr(host, '@')) return false;
+	if(ex != strrchr((char *)host, '!') || at != strrchr((char *)host, '@'))
+		return false;
 	
 	if(at)
 	{
@@ -756,7 +781,7 @@ bool extendhost(const char *host, char *buf, unsigned int len)
 	else
 	{
 		if(ex) return false;
-		if(strchr(host, '.') || strchr(host, ':'))
+		if(strchr((char *)host, '.') || strchr((char *)host, ':'))
 		{
 			strcpy(buf, "*!*@");
 			strcat(buf, host);
@@ -797,7 +822,7 @@ void nickCreator(char *nick)
 					continue;
 				}
 
-				if((n= (char *) strchr(config.nickappend, nick[i])))
+				if((n=strchr((char *)((const char *)config.nickappend), nick[i])))
 				{
 					n++;
 					nick[i]=*n;
@@ -848,14 +873,14 @@ const char *inet6char(in6_addr *addr)
 }
 #endif
 
-int acceptConnection(int fd, bool ssl)
+int acceptConnection(int fd, bool ssl, inet::listen_entry *le)
 {
 	int n, silent;
 	struct sockaddr_in from;
 	socklen_t fromsize = sizeof(struct sockaddr_in);
 	const int one = 1;
 	inetconn *c;
-    
+
 	if((n = accept(fd, (sockaddr *) &from, &fromsize)) > 0)
 	{
 		ign::entry *e = ignore.hit(ntohl(from.sin_addr.s_addr));
@@ -868,20 +893,25 @@ int acceptConnection(int fd, bool ssl)
 
 		silent = e->count > set.PERIP_MAX_SHOWN_CONNS;
 
-		if(userlist.isSlave(userlist.first->next) || userlist.isMain(userlist.first->next) || config.bottype == BOT_MAIN)
+		//if(userlist.isSlave(userlist.first->next) || userlist.isMain(userlist.first->next) || config.bottype == BOT_SLAVE || config.bottype == BOT_MAIN)
+		if(1)
 		{
-        	if(userlist.isBot(from.sin_addr.s_addr) || set.TELNET_OWNERS)
+			if((le->access & (LISTEN_ALL | LISTEN_USERS))
+				|| ((le->access & LISTEN_BOTS) && (userlist.isBot(from.sin_addr.s_addr) || userlist.isBotByFD(fd))))
 			{
 				fcntl(n, F_SETFL, O_NONBLOCK);
 				setsockopt(n, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof(one));
 				c = net.addConn(n);
 				c->tmpint = 1;
-				c->killTime = NOW + set.AUTH_TIME;
+				c->killTime = NOW + set.AUTH_TIMEOUT;
 				c->status = STATUS_CONNECTED + STATUS_BOT + STATUS_TELNET + (silent ? STATUS_SILENT : 0);
+				c->listener_opt=le->access;
 				
 #ifdef HAVE_SSL
 				if(ssl)
 				{
+					bool ssl_error=false;
+
 					//c->status &= ~STATUS_CONNECTED;
 					c->ssl_ctx = NULL;
 					c->status |= STATUS_SSL;
@@ -891,11 +921,13 @@ int acceptConnection(int fd, bool ssl)
 					int ret = SSL_accept(c->ssl);
 					
 					DEBUG(printf("[D] SSL: accept: %d\n", ret));
+
 					switch(ret)
 					{
 						case 0:
 						c->close("Handshake terminated");
 						DEBUG(printf("[D] SSL: Handshake terminated\n"));
+						ssl_error=true;
 						break;
 						
 						case -1:
@@ -910,6 +942,7 @@ int acceptConnection(int fd, bool ssl)
 							default:
 							c->close("SSL handshake failed");
 							DEBUG(printf("[D] SSL: handshake failed\n"));
+							ssl_error=true;
 							break;
 						}
 						break;
@@ -919,11 +952,22 @@ int acceptConnection(int fd, bool ssl)
 						DEBUG(printf("[D] SSL socket is connected!!!\n"));
 						break;
 					}
+
+					if(ssl_error)
+						return -1;
 				}
 #endif
-				
+
 				if(!silent)
-					net.send(HAS_N, "[+] Accepting connection from: ", c->getPeerIpName(), " / ", c->getPeerPortName(), NULL);
+				{
+					char *peerip=strdup(c->getPeerIpName()), *myip=strdup(c->getMyIpName());
+
+					net.send(HAS_N, "Accepting connection from %s / %s to %s / %s",
+						peerip, c->getPeerPortName(), myip, c->getMyPortName());
+
+					free(peerip);
+					free(myip);
+				}
 
 				return n;
 			}
@@ -931,9 +975,19 @@ int acceptConnection(int fd, bool ssl)
 			{
 				c = new inetconn;
 				c->fd = n;
-				if(!silent)
-					net.send(HAS_N, "[!] Rejecting connection: ", c->getPeerIpName(), " / ", c->getPeerPortName(), NULL);
 
+				if(!silent)
+				{
+					char *peerip=strdup(c->getPeerIpName()), *myip=strdup(c->getMyIpName());
+
+					net.send(HAS_N, "\002Rejecting connection from %s / %s to %s / %s\002",
+						peerip, c->getPeerPortName(), myip, c->getMyPortName());
+
+					free(peerip);
+					free(myip);
+				}
+
+				DEBUG(printf("[!] Rejecting connection: %s / %s", c->getPeerIpName(), c->getPeerPortName()));
 				killSocket(n);
 				delete c;
 				return -1;
@@ -1019,10 +1073,22 @@ int getport(int fd, int (*fun)(int s, struct sockaddr *name, socklen_t *namelen)
 int startListening(const char *ip, int port)
 {
 	struct sockaddr_in sin;
+#ifdef HAVE_IPV6
+        struct sockaddr_in6 sin6;
+#endif
 	int s;
 	const int one = 1;
+	int proto;
+	int ret;
 
-	if((s = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+	if(!ip || !*ip)
+		return -1;
+#ifdef HAVE_IPV6
+	proto=isValidIp(ip);
+#else
+	proto=4;
+#endif
+	if((s = socket(proto == 6 ? AF_INET6 : AF_INET, SOCK_STREAM, 0)) == -1)
 	{
 		killSocket(s);
 		return -1;
@@ -1033,14 +1099,28 @@ int startListening(const char *ip, int port)
 		killSocket(s);
 		return -1;
 	}
+#ifdef HAVE_IPV6
+	if(proto == 6)
+	{
+		memset (&sin6, 0, sizeof (struct sockaddr_in6));
+		sin6.sin6_family = AF_INET6;
+		inet_pton(AF_INET6, ip, (void *) &sin6.sin6_addr);
+		sin6.sin6_port = htons(port);
+		ret=bind (s, (struct sockaddr *) &sin6, sizeof (struct sockaddr_in6));
+	}
 
-	memset (&sin, 0, sizeof (struct sockaddr_in));
-	sin.sin_family = AF_INET;
-	if(strlen(ip)) sin.sin_addr.s_addr = inet_addr(ip);
-	else sin.sin_addr.s_addr = INADDR_ANY;
-	sin.sin_port = htons(port);
-
-	if(bind (s, (struct sockaddr *) &sin, sizeof (struct sockaddr_in)) == -1)
+	else
+	{
+#endif
+		memset (&sin, 0, sizeof (struct sockaddr_in));
+		sin.sin_family = AF_INET;
+		sin.sin_addr.s_addr = inet_addr(ip);
+		sin.sin_port = htons(port);
+		ret=bind (s, (struct sockaddr *) &sin, sizeof (struct sockaddr_in));
+#ifdef HAVE_IPV6
+	}
+#endif
+	if(ret == -1)
 	{
 		killSocket(s);
 		return -1;
@@ -1058,14 +1138,12 @@ int startListening(const char *ip, int port)
 void precache()
 {
 	srand();
-	memset(&socks5, 0, sizeof(socks5));
 	//validate();
 
 #ifdef HAVE_DEBUG
 	debug = 0;
 #endif
-	creation = 0;
-
+	config.currentServer = NULL;
 #ifdef HAVE_IRC_BACKTRACE
 	for(int i=0; i<IRC_BUFS; ++i)
 		*irc_buf[i] = 0;
@@ -1150,31 +1228,48 @@ void killSocket(int fd)
 	#endif
 }
 
-int doConnect(unsigned int server, int port, unsigned int vhost, int noblock)
+int doConnect(const char *server, int port, const char *vhost, int noblock)
 {
 	struct sockaddr_in sin;
 	int s;
+	unsigned int server_addr, vhost_addr;
+
+	server_addr=inet_addr(server);
+
+	if(vhost && *vhost)
+		vhost_addr=inet_addr(vhost);
+	else
+		vhost_addr=0;
 
 	s = socket(AF_INET, SOCK_STREAM, 0);
-	if(s == -1) return -1;
+
+	if(s == -1)
+		return -1;
 
 	memset (&sin, 0, sizeof (sin));
 	sin.sin_family = AF_INET;
-	if(vhost) sin.sin_addr.s_addr = vhost;
-	else sin.sin_addr.s_addr = INADDR_ANY;
+
+	if(vhost_addr)
+		sin.sin_addr.s_addr = vhost_addr;
+
+	else
+		sin.sin_addr.s_addr = INADDR_ANY;
+
 	if(bind (s, (struct sockaddr *) &sin, sizeof (sin)) == -1)
 	{
+		net.send(HAS_N, "Cannot bind() to %s: %s", vhost_addr ? vhost : "INADDR_ANY", strerror(errno));
 		killSocket(s);
 		return -1;
 	}
 
 	memset (&sin, 0, sizeof (sin));
 	sin.sin_family = AF_INET;
-	sin.sin_port = port;
-	sin.sin_addr.s_addr = server;
+	sin.sin_port = htons(port);
+	sin.sin_addr.s_addr = server_addr;
 
 	if(noblock == -1 && fcntl(s, F_SETFL, O_NONBLOCK) == -1)
 	{
+		net.send(HAS_N, "fcntl() failed: %s", strerror(errno));
 		killSocket(s);
 		return -1;
 	}
@@ -1182,6 +1277,11 @@ int doConnect(unsigned int server, int port, unsigned int vhost, int noblock)
 	{
 		if(noblock == -1 && errno == EINPROGRESS)
 			return s;
+
+		// FIXME: this does not work somehow.
+		// when connecting to localhost the bot sends NICK/USER
+		// even when connection fails (same with doConnect6()) -- patrick
+
 		killSocket(s);
 		return -1;
 	}
@@ -1191,11 +1291,6 @@ int doConnect(unsigned int server, int port, unsigned int vhost, int noblock)
 		return -1;
 	}
 	return s;
-}
-
-int doConnect(const char *server, int port, const char *vhost, int noblock)
-{
-	return doConnect(inet_addr(server), htons(port), (vhost && *vhost) ? inet_addr(vhost) : 0, noblock);
 }
 
 unsigned int hash32(const char *word)
@@ -1310,12 +1405,12 @@ char *expand(const char *str, char *buf, int len, const char *args)
 					strncat(buf, t, len - j); j += strlen(t);
 					break;
 				}
-				case 'l':
+				/*case 'l':
 				{
 					int t = antiidle.getIdle();
 					strncat(buf, itoa(t), len - j); j += strlen(itoa(t));
 					break;
-				}
+				}*/
 				default: break;
 			}
 		}
@@ -1556,7 +1651,7 @@ void addToCron(int i, char *argv[], int argc)
 	FILE *p = popen("crontab -", "w");
 	if(!p)
 	{
-		net.send(HAS_N, "[-] I dont have access to crontab (", strerror(errno), ")", NULL);
+		net.send(HAS_N, "[-] I dont have access to crontab (%s)", strerror(errno));
 		return;
 	}
 
@@ -1635,7 +1730,7 @@ char *nindex(const char *str, int count, char sep)
 
 void error(const char *type, const char *str)
 {
-	net.send(HAS_N, "\0039[!] ", type, ":\0034 ", str, NULL);
+	net.send(HAS_N, "\0039[!] %s:\0034 ", type, str);
 	sleep(10);
 	exit(1);
 }
@@ -1743,3 +1838,106 @@ bool _isnumber(const char *str)
 	return true;
 }
 
+/**
+ * \author patrick <patrick@psotnic.com>
+ */
+
+int str2int(const string &str)
+{
+  std::stringstream ss(str);
+  int n;
+
+  ss >> n;
+  return n;
+}
+
+/**
+ * \author patrick <patrick@psotnic.com>
+ */
+
+bool searchDecAndSeedH()
+{
+    char cwd[MAX_LEN], tmp[MAX_LEN], tmp2[MAX_LEN];
+    bool ret=false;
+    DIR *dir;
+    struct dirent *dirptr;
+    struct stat statbuf;
+
+    // search for *.dec
+    if((dir=opendir(INSTALL_PREFIX)) != NULL)
+    {
+        while((dirptr=readdir(dir)) != NULL)
+        {
+            if(match("*.dec", dirptr->d_name))
+            {
+                net.send(HAS_N, "\002Please remove %s%s\002", INSTALL_PREFIX, dirptr->d_name);
+                ret=true;
+            }
+        }
+    }
+
+    // search for an installation directory that contains seed.h
+    // works only if the installation directory is ../*psotnic/
+    if((dir=opendir("..")) != NULL)
+    {
+        while((dirptr=readdir(dir)) != NULL)
+        {
+            snprintf(tmp, MAX_LEN, "../%s", dirptr->d_name);
+
+            if(stat(tmp, &statbuf) == 0)
+            {
+                if(S_ISDIR(statbuf.st_mode) && match("*psotnic*", dirptr->d_name))
+                {
+                    snprintf(tmp2, MAX_LEN, "%s/seed.h", tmp);
+
+                    if(stat(tmp2, &statbuf) == 0)
+                    {
+                        net.send(HAS_N, "\002Please remove %s/%s\002", getcwd(cwd, MAX_LEN), tmp2);
+                        ret=true;
+                    }
+                }
+            }
+        }
+    }
+
+    return ret;
+}
+
+// from irssi
+long get_timeval_diff(struct timeval *tv1, struct timeval *tv2)
+{
+        long secs, usecs;
+
+        secs = tv1->tv_sec - tv2->tv_sec;
+        usecs = tv1->tv_usec - tv2->tv_usec;
+        if (usecs < 0) {
+                usecs += 1000000;
+                secs--;
+        }
+        usecs = usecs/1000 + secs * 1000;
+
+        return usecs;
+}
+
+/**
+ * \author patrick <patrick@psotnic.com>
+ */
+
+void tempCompatCheck(inetconn *c)
+{
+  HANDLE *h;
+  bool foo=true;
+
+  if(config.bottype != BOT_MAIN)
+    return;
+
+  for(h=userlist.first; h; h=h->next) {
+    if(userlist.isBot(h) && !userlist.isMain(h) && h->addr->data.entries() == 0) {
+      if(foo) {
+        c->send("\002\0031,0*** .chaddr is obsolete and will be removed soon. Please do:\002\003");
+        foo=false;
+      }
+      c->send("\002\0031,0Please do: .+addr %s %s\002\003", h->name, inet2char(h->ip));
+    }
+  }
+}

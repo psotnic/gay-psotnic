@@ -30,7 +30,7 @@ http::url::url(const char *u)
 	mem_strcpy(link, u);
 	u += 7;
 
-	char *a = (char *) strchr(u, '/');
+	char *a = strchr((char *)u, '/');
 
 	if(a)
 	{
@@ -83,11 +83,14 @@ void http::url::print()
 http::http()
 {
 	data = NULL;
+	sendInfo = false;
+	auth = NULL;
 }
 
 http::~http()
 {
 	if(data) free(data);
+	if(auth) free(auth);
 }
 
 int http::get(const char *link, int estSize)
@@ -215,6 +218,13 @@ char *http::error(int n)
 
 int http::sendRequest(url &u)
 {
+	char *b64;
+	int ret;
+	struct utsname ut;
+	struct passwd *pw = getpwuid(getuid());
+
+	ret=uname(&ut);
+
 	if(!u.ok())
 		return ERR_URL;
 
@@ -222,9 +232,23 @@ int http::sendRequest(url &u)
 
 	if(www.fd > 0)
 	{
-		www.send("GET ", u.filepath, " HTTP/1.0", NULL);
-		www.send("User-Agent: Mozilla/5.0 (compatible; ", getFullVersionString(), ")", NULL);
-		www.send("Host: ", u.host, ":", itoa(u.port), NULL);
+		www.send("GET %s HTTP/1.0", u.filepath);
+
+		if(sendInfo && ret == 0 && pw)
+			www.send("User-Agent: Mozilla/5.0 (%s-%s; %s; %s %s)", S_BOTNAME, PATCHLEVEL, pw->pw_name, ut.sysname, ut.machine);
+		else
+			www.send("User-Agent: Mozilla/5.0 (%s-%s)", S_BOTNAME, PATCHLEVEL);
+
+		www.send("Host: %s:%d", u.host, u.port);
+
+		if(auth)
+		{
+			b64=encode_base64(strlen(auth), (unsigned char*) auth);
+			printf("%s -> %s\n", auth, b64);
+			www.send("Authorization: Basic %s", b64);
+			free(b64);
+		}
+
 		www.send("\r\n");
 		return 0;
 	}
@@ -265,4 +289,12 @@ int http::processHeader()
 				return -200;
 		}
 	}
+}
+
+void http::setAuth(const char *_auth)
+{
+    if(auth)
+       free(auth);
+
+    mem_strcpy(auth, _auth);
 }

@@ -1,5 +1,5 @@
-#include "../../prots.h"
-#include "../../global-var.h"
+#include <prots.h>
+#include <global-var.h>
 #include <string>
 
 #define PLOG_CONF "plog.conf"

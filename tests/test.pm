@@ -5,7 +5,7 @@ use strict;
 my ($lflags, $cflags);
 my %have;
 
-our ($antiptrace, $noircbacktrace, $ssl, $little_endian, $big_endian, $cc_prefix, $cc_options, $ld_options, $disable_adns, $firedns);
+our ($antiptrace, $noircbacktrace, $ssl, $disable_ssl, $little_endian, $big_endian, $cc_prefix, $cc_options, $ld_options, $disable_adns, $firedns);
 
 $lflags = "$ld_options ";
 $cflags = "$cc_options ";
@@ -147,6 +147,9 @@ sub getGccOptions
     tryCompile("${cc_prefix}g++", 'gethostbyname2_r.c', '-lsocket', '-lnsl', '-ldl', '-lc', '-lm');
     tryCompile("${cc_prefix}g++", 'dlopen.c', '-ldl', '-lc', '-lm');
     tryCompile("${cc_prefix}g++", 'resolv.c', '-lresolv', '-lm');
+    if(!$disable_ssl) {
+    	tryCompile("${cc_prefix}g++", 'ssl.c', '-lssl');
+    }
 
     #determine compiler options
     if($have{'ipv6.c'})
@@ -165,16 +168,25 @@ sub getGccOptions
 		{
 			$cflags .= "-DHAVE_ADNS -DHAVE_ADNS_FIREDNS ";
 		}
-	    elsif($have{'gethostbyname2_r.c'})
-    	{
+	        elsif($have{'gethostbyname2_r.c'})
+    	        {
 			$cflags .= "-DHAVE_ADNS -DHAVE_ADNS_PTHREAD ";
-	    }
+	        }
 	}
 
     if(!$have{'dlopen.c'})
     {
         $cflags .= "-DHAVE_STATIC ";
 	
+    }
+
+    if(!$disable_ssl) {
+    	if($have{'ssl.c'})
+    	{
+        	$ssl = 1;
+        	$cflags .= "-DHAVE_SSL ";
+        	$lflags .= "-lssl ";
+    	}
     }
 	
 	return ($cflags, $lflags);

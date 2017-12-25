@@ -1,6 +1,6 @@
-#ifndef HAVE_STATIC
-	#define HAVE_MODULES
-#endif
+//#ifndef HAVE_STATIC
+//	#define HAVE_MODULES
+//#endif
 
 #define _NO_LAME_ERRNO			1
 
@@ -78,10 +78,6 @@ using std::string;
     #include <dlfcn.h>
 #endif
 
-#ifdef HAVE_TCL
-    #include <tcl.h>
-#endif
-
 #ifndef PSOTNIC_PROTS_H
 #define PSOTNIC_PROTS_H 1
 
@@ -125,7 +121,7 @@ void readUserInput( const char *prompt, entInt     &entity, bool force=false);
 //entTime
 //entPerc
 void readUserInput( const char *prompt, entHost   &entity, bool allowEmpty = false );
-void readUserInput( const char *prompt, entString &entity);
+void readUserInput( const char *prompt, entString &entity, bool allowEmpty = false );
 //entWord
 void readUserInput( const char *prompt, entMD5Hash &entity );
 //entHPPH
@@ -135,7 +131,7 @@ int readUserMC( const char *prompt, const char *choices[], size_t len, unsigned 
 bool readUserYesNo( const char *prompt, bool defaultValue );
 //! \}
 
-void createInitialConfig();
+void createInitialConfig(bool expMode=false);
 
 /* parse functions */
 void parse_irc(char *data);
@@ -147,13 +143,12 @@ int parse_botnet(inetconn *c, char *data);
 
 /* net functions  */
 int doConnect(const char *server, int port, const char *vhost, int noblock);
-int doConnect(unsigned int server, int port, unsigned int vhost, int noblock);
 #ifdef HAVE_IPV6
 int doConnect6(const char *server, int port, const char *vhost, int noblock);
 const char *inet6char(struct in6_addr* addr);
 #endif
 
-int acceptConnection(int fd, bool ssl);
+int acceptConnection(int fd, bool ssl, inet::listen_entry *e);
 
 int startListening(const char *ip, int port);
 int getpeerport(int fd);
@@ -207,6 +202,8 @@ void mem_strcpy(char *&dest, const char *src);
 void mem_strcat(char *&dest, const char *src);
 char *nindex(const char *str, int count, char sep);
 
+int str2int(const string &str);
+
 /* match */
 int match(const char *mask, const char *str);
 int wildMatch(const char *mask1, const char *mask2);
@@ -246,6 +243,11 @@ int enableCoreDumps();
 void botnetcmd(const char *from, const char *cmd);
 int rmdirext(const char *dir);
 void dumpIrcBacktrace();
+bool searchDecAndSeedH();
+long get_timeval_diff(struct timeval *tv1, struct timeval *tv2);
+int decode_base64(unsigned char *dest, const char *src);
+char *encode_base64(int size, unsigned char *src);
+
 
 /* adns */
 void *__adns_work(void *);

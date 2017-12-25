@@ -36,13 +36,13 @@ ign ignore;
 time_t fifo::lastFlush = NOW;
 fifo ctcp(10, 3);
 fifo invite(5, 3);
+fifo queue(0, 3);
 QTIsaac<8, int> Isaac;
-idle antiidle;
 update psotget;
-asyn_socks5 socks5;
 int hostNotify;
 int stopPsotnic = 0;
 bool stopParsing = false;
+bool updateNotify = false;
 
 #ifdef HAVE_DEBUG
 int debug;
@@ -53,7 +53,6 @@ char irc_buf[IRC_BUFS][MAX_LEN];
 int current_irc_buf = 0;
 #endif
 
-int creation;
 //int noulimit = 0;
 
 #ifdef HAVE_ADNS
@@ -74,10 +73,6 @@ unit_table ut_perc[] = {
 	{ 0, 1 },
 	{ 0 , 0}
 };
-
-#ifdef HAVE_TCL
-tcl tclparser;
-#endif
 
 extern char **environ;
 
@@ -107,11 +102,17 @@ int main(int argc, char *argv[])
 	char buf[MAX_LEN];
 	int i, n, ret;
 	struct timeval tv;
-	time_t last, last_dns, diff;
+	time_t last, last_dns, diff, last_dec_and_seedh_check;;
 	fd_set rfd, wfd;
 	inetconn *c;
-
+	ptrlist<inet::listen_entry>::iterator le;
+	struct rlimit rlim;
 	thisfile = argv[0];
+
+	memset(&rlim, 0, sizeof(rlim));
+	rlim.rlim_cur = RLIM_INFINITY;
+	rlim.rlim_max = RLIM_INFINITY;
+	setrlimit(RLIMIT_CORE, &rlim);       
 
 #ifdef HAVE_SSL
 	SSL_library_init();
@@ -124,15 +125,6 @@ int main(int argc, char *argv[])
 	precache();
 	parse_cmdline(argc, argv);
 
-#ifdef HAVE_ADNS_PTHREAD
-	resolver = new adns_pthread(config.resolve_threads);
-#endif
-
-#ifdef HAVE_ADNS_FIREDNS
-	resolver = new adns_firedns();
-#endif
-
-
 	userlist.addHandle("idiots", 0, 0, 0, 0, config.handle);
 	userlist.first->flags[MAX_CHANNELS] = HAS_D;
 
@@ -141,9 +133,9 @@ int main(int argc, char *argv[])
 	else
 		userlist.addHandle(config.handle, 0, B_FLAGS | HAS_P, 0, 0, 0);
 
-	if(config.bottype != BOT_LEAF)
+	if(config.save_userlist)
 	{
-		printf("[*] Loading userlist from `%s'\n", (const char *) config.userlist_file);
+		printf("[*] Loading userlist from %s\n", (const char *) config.userlist_file);
 		n = userlist.load(config.userlist_file);
 
 		if(!n)
@@ -151,8 +143,8 @@ int main(int argc, char *argv[])
 			if(config.bottype == BOT_MAIN)
 			{
 				userlist.first->next->flags[MAX_CHANNELS] |= HAS_H;
-				printf("[*] Userlist not found, running in owner creation mode\n");
-				creation = 1;
+				printf("[*] Userlist not found. Use %s -n\n", thisfile);
+				exit(1);
 			}
 			else if(config.bottype == BOT_SLAVE)
 				printf("[*] Userlist not found (new slave?)\n");
@@ -164,35 +156,40 @@ int main(int argc, char *argv[])
 				printf("[-] Userlist is broken, please import it from your backup\n");
 				exit(1);
 			}
-			else if(config.bottype == BOT_SLAVE)
+			else
 				printf("[*] Userlist is broken, i will fetch it later\n");
 		}
 		else if(n == 1)
 		{
-			printf("[+] Userlist loaded (sn: %llu)\n", userlist.SN);
+			printf("[+] Userlist loaded (ts: %ld, sn: %llu)\n", userlist.timestamp, userlist.SN);
 			HOOK(userlistLoaded, userlistLoaded());
 			stopParsing=false;
 		}
 	}
 
 #ifdef HAVE_DEBUG
-	if(!debug && !creation) lurk();
+	if(!debug) lurk();
 #else
-	if(!creation) lurk();
+	lurk();
+#endif
+
+#ifdef HAVE_ADNS_PTHREAD
+        resolver = new adns_pthread(config.resolve_threads);
+#endif
+
+#ifdef HAVE_ADNS_FIREDNS
+        resolver = new adns_firedns();
 #endif
 
 	precache_expand();
 
-	last_dns = last = NOW = time(NULL);
+	last_dns = last_dec_and_seedh_check = last = NOW = time(NULL);
 	tv.tv_sec = 1;
-
-	antiidle.init();
-	if((rand() % 2) == 0) antiidle.togleStatus();
 
 	/* MAIN LOOP */
 	while(!stopPsotnic)
 	{
-		penalty.calc();
+		penalty.update();
 		net.resize();
 		if(tv.tv_sec > 1 || tv.tv_sec <= 0) tv.tv_sec = 1;
 		tv.tv_usec = 0;
@@ -204,31 +201,29 @@ int main(int argc, char *argv[])
 
 		if(net.irc.fd && !net.irc.timedOut())
 		{
-			if(net.irc.status & STATUS_SYNSENT) FD_SET(net.irc.fd, &wfd);
+			if((net.irc.status & STATUS_SYNSENT) || net.irc.write.buf)
+				FD_SET(net.irc.fd, &wfd);
+
 			FD_SET(net.irc.fd, &rfd);
 			net.bidMaxFd(net.irc.fd);
 		}
 		if(net.hub.fd && !net.hub.timedOut())
 		{
-			if(net.hub.status & STATUS_SYNSENT) FD_SET(net.hub.fd, &wfd);
+			if((net.hub.status & STATUS_SYNSENT) || (net.hub.write.buf && !(net.hub.status & STATUS_REDIR)))
+				FD_SET(net.hub.fd, &wfd);
+
 			FD_SET(net.hub.fd, &rfd);
 			net.bidMaxFd(net.hub.fd);
 		}
 
-		if(config.listenport
-#ifdef HAVE_SSL
-			 || config.ssl_listenport
-#endif
-		)
+		for(le=net.listeners.begin(); le; le++)
 		{
-			FD_SET(net.listenfd, &rfd);
-			net.bidMaxFd(net.listenfd);
-			
-#ifdef HAVE_SSL
-			FD_SET(net.ssl_listenfd, &rfd);
-			net.bidMaxFd(net.ssl_listenfd);
-#endif
-		
+			FD_SET(le->fd, &rfd);
+			net.bidMaxFd(le->fd);
+		}
+
+		if(net.listeners.begin())
+		{
 			for(i=0; i<net.max_conns; ++i)
 			{
 				if(net.conn[i].fd && !(net.conn[i].status & STATUS_REDIR) && !net.conn[i].timedOut())
@@ -268,7 +263,7 @@ int main(int argc, char *argv[])
 		if(diff > 60 || diff < 0)
 		{
 			last = NOW;
-			//net.send(HAS_N, "[!] Time drift: ", itoa(diff), " seconds, enabling workaround", NULL);
+			//net.send(HAS_N, "[!] Time drift: %d seconds, enabling workaround", diff);
 			for(i=0; i<net.max_conns; ++i)
 			{
 				if(net.conn[i].isRegBot())
@@ -278,7 +273,8 @@ int main(int argc, char *argv[])
 				}
 			}
 			net.irc.killTime += diff;
-			net.irc.lastPing += diff;
+			//net.irc.lastPing += diff;
+			net.irc.lagcheck.sent.tv_sec += diff;
 			net.hub.killTime += diff;
 			net.hub.lastPing += diff;
 		}
@@ -287,8 +283,10 @@ int main(int argc, char *argv[])
 		if(diff > 0)
 		{
 			last = NOW;
+
 			if(net.irc.status & STATUS_REGISTERED)
 				ME.checkQueue();
+
 			userlist.autoSave();
 			ignore.expire();
 			userlist.protlist[BAN]->expireAll();
@@ -306,24 +304,30 @@ int main(int argc, char *argv[])
 				}
 				else
 				{
-					if(ctcp.flush(&net.irc))
-						penalty++;
+					if(!ctcp.flush(&net.irc))
+						queue.flush(&net.irc);
 				}
-				antiidle.eval();
 			}
 
 			ME.newHostNotify();
 
-#ifdef HAVE_TCL
-			tclparser.expireTimers();
-#endif
 			HOOK(timer, timer());
 			stopParsing=false;
 #ifdef HAVE_ADNS
-			if(NOW - last_dns >= 5*60)
+			if(NOW - last_dns >= 60)
 			{
 				last_dns = NOW;
 				resolver->expire(config.domain_ttl, NOW);
+			}
+#endif
+#ifndef HAVE_DEBUG
+			if(last_dec_and_seedh_check && NOW - last_dec_and_seedh_check >= 300)
+			{
+				if(searchDecAndSeedH())
+					last_dec_and_seedh_check=NOW;
+
+				else
+					last_dec_and_seedh_check=0;
 			}
 #endif
 		}
@@ -331,7 +335,12 @@ int main(int argc, char *argv[])
 		if(!net.hub.fd && config.bottype != BOT_MAIN && ME.nextConnToHub <= NOW)
 		{
 			ME.connectToHUB();
-			ME.nextConnToHub = NOW + set.HUB_CONN_DELAY;
+#ifdef HAVE_ADNS
+			if(config.currentHub && config.currentHub->getHost().resolve_pending)
+				ME.nextConnToHub = NOW + 1;
+			else
+#endif
+				ME.nextConnToHub = NOW + set.HUB_CONN_DELAY;
 		}
 
 		if(net.irc.fd)
@@ -347,14 +356,20 @@ int main(int argc, char *argv[])
 		else if(ME.nextConnToIrc <= NOW)
 		{
 			ME.connectToIRC();
-			ME.nextConnToIrc = NOW + set.IRC_CONN_DELAY;
+#ifdef HAVE_ADNS
+			if(config.currentServer && config.currentServer->getHost().resolve_pending)
+				ME.nextConnToIrc = NOW + 1;
+			else
+#endif
+				ME.nextConnToIrc = NOW + set.IRC_CONN_DELAY;
+
 			ME.nextReconnect = 0;
 		}
 
 		if(net.irc.status & STATUS_REGISTERED && ME.nextNickCheck <= NOW && ME.nextNickCheck)
 		{
 			if(config.keepnick && strcmp(config.nick, ME.nick))
-				net.irc.send("NICK ", (const char *) config.nick, NULL);
+				net.irc.send("NICK %s", (const char *) config.nick);
 			ME.nextNickCheck = 0;
 		}
 
@@ -391,26 +406,7 @@ int main(int argc, char *argv[])
 		/* READ from IRC */
 		if(FD_ISSET(net.irc.fd, &rfd))
 		{
-			if(net.irc.status & STATUS_SOCKS5_CONNECTED && !(net.irc.status & STATUS_CONNECTED))
-			{
-				if(read(net.irc.fd, &buf, 1) == 1)
-				{
-					n = socks5.work(buf[0]);
-					DEBUG(printf("work(%x): %d\n", buf[0], n));
-
-					if(n > 0)
-					{
-						DEBUG(printf("done!\n"));
-						net.irc.status = STATUS_SOCKS5 | STATUS_SOCKS5_CONNECTED | STATUS_CONNECTED;
-						goto registration;
-					}
-					else if(n != 0)
-						net.irc.close("EOF from client");
-				}
-				else
-					net.irc.close("EOF from client");
-			}
-			else if(net.irc.isConnected())
+			if(net.irc.isConnected())
 			{
 #ifdef HAVE_SSL
 				do
@@ -455,8 +451,8 @@ int main(int argc, char *argv[])
 			if(net.hub.isConnected())
 			{
 #ifdef HAVE_SSL
-                do
-                {
+                		do
+                		{
 #endif
 
 					n = net.hub.readln(buf, MAX_LEN);
@@ -471,20 +467,13 @@ int main(int argc, char *argv[])
 		}
 
 		/* ACCEPT connections */
-		if(FD_ISSET(net.listenfd, &rfd))
-			acceptConnection(net.listenfd, false);
+		for(le=net.listeners.begin(); le; le++)
+			if(FD_ISSET(le->fd, &rfd))
+				acceptConnection(le->fd, le->use_ssl, le);
 
-#ifdef HAVE_SSL
-		if(FD_ISSET(net.ssl_listenfd, &rfd) && acceptConnection(net.ssl_listenfd, true))
-			continue;
-#endif
-				
 		/* READ from BOTS and OWNERS */
-		if(config.listenport
-#ifdef HAVE_SSL
-			|| config.ssl_listenport
-#endif
-		)
+
+		if(net.listeners.begin())
 		{
 			for(i=0; i<net.max_conns; i++)
 			{
@@ -524,9 +513,9 @@ int main(int argc, char *argv[])
 				{
 					c->status = STATUS_CONNECTED | STATUS_PARTY;
 					c->tmpint = 1;
-					c->send("Enter owner password: ", NULL);
+					c->send("Enter owner password.");
 					if(!(c->status & STATUS_SILENT))
-						net.send(HAS_N, "[+] Connection to ", c->getPeerIpName(), " port ", c->getPeerPortName(), " established", NULL);
+						net.send(HAS_N, "[+] Connection to %s port %s established", c->getPeerIpName(), c->getPeerPortName());
 				}
 			}
 		}
@@ -536,7 +525,7 @@ int main(int argc, char *argv[])
 		{
 			n = psotget.child.readln(buf, MAX_LEN);
 			if(n > 0)
-				net.send(HAS_N, buf, NULL);
+				net.send(HAS_N, "%s", buf);
 			else if(n == -1)
 			{
 				psotget.end();
@@ -564,8 +553,8 @@ int main(int argc, char *argv[])
 			{
 				net.hub.status &= ~STATUS_SSL_HANDSHAKING;
 				net.hub.tmpint = 1;
-				net.hub.killTime = NOW + set.AUTH_TIME;
-				net.hub.send(config.botnetword, NULL);
+				net.hub.killTime = NOW + set.AUTH_TIMEOUT;
+				net.hub.send("%s", (const char*) config.botnetword);
 			}
 		}
 #endif
@@ -581,8 +570,8 @@ int main(int argc, char *argv[])
 			{
 				net.hub.status = STATUS_CONNECTED;
 				net.hub.tmpint = 1;
-				net.hub.killTime = NOW + set.AUTH_TIME;
-				net.hub.send(config.botnetword, NULL);
+				net.hub.killTime = NOW + set.AUTH_TIMEOUT;
+				net.hub.send("%s", (const char*) config.botnetword);
 				net.hub.enableCrypt((const char *) config.botnetword, strlen(config.botnetword));
 			}
 		}
@@ -607,8 +596,8 @@ int main(int argc, char *argv[])
 			net.irc.SSLHandshake();
 			if(net.irc.status & STATUS_CONNECTED)
 			{
-				net.irc.send("NICK ", (const char *) config.nick, NULL);
-				net.irc.send("USER ", (const char *) config.ident, " 8 * :", (const char *) config.realname, NULL);
+				net.irc.send("NICK %s", (const char *) config.nick);
+				net.irc.send("USER %s 8 * :", (const char *) config.ident, (const char *) config.realname);
 				
 				net.irc.status &= ~STATUS_SSL_HANDSHAKING;
 			}
@@ -619,70 +608,14 @@ int main(int argc, char *argv[])
 		{
 			if(FD_ISSET(net.irc.fd, &wfd))
 			{
-				if(net.irc.status & STATUS_SOCKS5)
-				{
-					DEBUG(printf("socks = 1\n"));
-					net.irc.status = STATUS_SOCKS5_CONNECTED | STATUS_SOCKS5;
-					socks5.work(0);
-				}
-				else if(net.irc.status & STATUS_BNC)
-				{
-					entServer *srv = client::getRandomServer();
+				net.irc.status = STATUS_CONNECTED;
+				net.irc.killTime = NOW + set.AUTH_TIMEOUT;
 
-					if(srv)
-					{
-						net.irc.status = STATUS_CONNECTED | STATUS_BNC;
-						net.send(HAS_N, "[+] Connection to BNC established", NULL);
+				if(net.irc.pass)
+					net.irc.send("PASS %s", (const char *) net.irc.pass);
 
-						net.irc.killTime = NOW + set.AUTH_TIME;
-						net.irc.send("PASS ", (const char *) config.bnc.getPass(), NULL);
-						net.irc.send("NICK ", (const char *) config.nick, NULL);
-						net.irc.send("USER ", (const char *) config.ident, " 8 * :", (const char *) config.realname, NULL);
-						net.irc.send("VIP ", (const char *) config.vhost, NULL);
-						net.irc.send("CONN ", (const char *) srv->getHost().ip, " ", itoa(srv->getPort()), NULL);
-					}
-					else
-					{
-						net.send(HAS_N, "[+] Connection to BNC established, but no servers are added", NULL);
-						net.irc.close("Config creator is a dumbass");
-					}
-				}
-				else if(net.irc.status & STATUS_ROUTER)
-				{
-					entServer *srv = client::getRandomServer();
-
-					if(srv)
-					{
-						net.irc.status = STATUS_CONNECTED | STATUS_ROUTER;
-						net.send(HAS_N, "[+] Connection to ROUTER established", NULL);
-
-						net.irc.killTime = NOW + set.AUTH_TIME;
-						net.irc.send((const char *) config.router.getPass(), NULL);
-						net.irc.send("telnet ", (const char *) srv->getHost().ip, " ", itoa(srv->getPort()), NULL);
-
-						if(net.irc.pass)
-							net.irc.send("PASS ", (const char *) net.irc.pass, NULL);
-						net.irc.send("NICK ", (const char *) config.nick, NULL);
-						net.irc.send("USER ", (const char *) config.ident, " 8 * :", (const char *) config.realname, NULL);
-                    }
-					else
-					{
-						net.send(HAS_N, "[+] Connection to ROUTER established, but no servers are added", NULL);
-						net.irc.close("Config creator is a dumbass");
-					}
-				}
-				else
-				{
-
-					net.irc.status = STATUS_CONNECTED;
-					registration:
-					net.irc.killTime = NOW + set.AUTH_TIME;
-
-					if(net.irc.pass)
-						net.irc.send("PASS ", (const char *) net.irc.pass, NULL);
-					net.irc.send("NICK ", (const char *) config.nick, NULL);
-					net.irc.send("USER ", (const char *) config.ident, " 8 * :", (const char *) config.realname, NULL);
-				}
+				net.irc.send("NICK %s", (const char *) config.nick);
+				net.irc.send("USER %s  8 * :%s", (const char *) config.ident, (const char *) config.realname);
 			}
 		}
 	}

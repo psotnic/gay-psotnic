@@ -87,12 +87,29 @@ void options::sendToOwner(const char *owner, const char *var, const char *prefix
 	{
 		if(o->isPrintable() && (!*var || !strncmp(o->getName(), var, strlen(var))))
 		{
-			net.sendOwner(owner, prefix, ": ", o->print(maxVarLen), NULL);
+			net.sendUser(owner, "%s: %s", prefix, o->print(maxVarLen));
 			++i;
 		}
 
 		o++;
 	}
+}
+
+void options::sendToSTDout(const char *var, const char *prefix)
+{
+        ptrlist<ent>::iterator o = list.begin();
+        int i=0;
+
+        while(o)
+        {
+                if(o->isPrintable() && (!*var || !strncmp(o->getName(), var, strlen(var))))
+                {
+                        printf("%s: %s\n", prefix, o->print(maxVarLen));
+                        ++i;
+                }
+
+                o++;
+        }
 }
 
 bool options::parseUser(const char *from, const char *var, const char *value, const char *prefix, const char *prefix2)
@@ -107,16 +124,36 @@ bool options::parseUser(const char *from, const char *var, const char *value, co
 
 		if(e->ok)
 		{
-			net.sendCmd(from, prefix2, prefix, " ", var, " ", e->entity->getValue(), NULL);
-			net.sendOwner(from, prefix, ": ", (const char *) e->reason, NULL);
+			net.send(HAS_N, "# %s # %s %s %s %s", from, prefix2, prefix, var, e->entity->getValue());
+			net.sendUser(from, "%s: %s", prefix, (const char *) e->reason);
 			return 1;
 		}
-		net.sendOwner(from, prefix, ": ", (const char *) e->reason, NULL);
+		net.sendUser(from, "%s: %s", prefix, (const char *) e->reason);
 
 	}
 	return 0;
 }
 
+bool options::parseUserSTDout(const char *var, const char *value, const char *prefix, const char *prefix2)
+{
+        if((!value || !*value) && *var != '+' && *var != '-')
+        {
+                sendToSTDout(var, prefix);
+        }
+        else
+        {
+                options::event *e = setVariable(var, value);
+
+                if(e->ok)
+                {
+                        printf("%s: %s\n", prefix, (const char *) e->reason);
+                        return 1;
+                }
+                printf("%s: %s\n", prefix, (const char *) e->reason);
+
+        }
+        return 0;
+}
 
 void options::reset()
 {
@@ -136,7 +173,7 @@ void options::sendToFile(inetconn *c, pstring<> prefix)
 	while(i)
 	{
 		if(!i->isDefault() && i->isPrintable())
-			c->send((const char *) prefix, " ", i->print(), NULL);
+			c->send("%s %s", (const char *) prefix, i->print());
 		i++;
 	}
 }
@@ -222,19 +259,18 @@ void options::display()
 settings::settings()
 {
 	registerObject(CYCLE_DELAY = entTime("cycle-delay", 0, 60, 10));
-	registerObject(REJOIN_DELAY = entTime("rejoin-delay", 0, 60, 0));
+	registerObject(REJOIN_AFTER_KICK_DELAY = entTime("rejoin-after-kick-delay", 0, 60, 0));
 	registerObject(REJOIN_FAIL_DELAY = entTime("rejoin-fail-delay", 7, 60, 25));
 	registerObject(HUB_CONN_DELAY = entTime("hub-conn-delay", 10, 3600, 20));
 	registerObject(IRC_CONN_DELAY = entTime("irc-conn-delay", 10, 3600, 25));
-	registerObject(AUTH_TIME = entTime("auth-time", 15, 360, 45));
-	registerObject(PRIVATE_CTCP = entBool("private-ctcp", 1));
+	registerObject(AUTH_TIMEOUT = entTime("auth-timeout", 15, 360, 45));
+	registerObject(REPLY_TO_CTCP = entBool("reply-to-ctcp", 1));
 	registerObject(OPS_PER_MODE = entInt("ops-per-mode", 0, 3, 2));
 	registerObject(ASK_FOR_OP_DELAY = entTime("ask-for-op-delay", 1, 60, 4));
 	registerObject(GETOP_OP_CHECK = entBool("get-op-check", 1));
-	registerObject(CONN_TIMEOUT = entTime("conn-timeout", 16, 600, 180));
+	registerObject(CONN_TIMEOUT = entTime("conn-timeout", 16, 600, 300));
 	registerObject(KEEP_NICK_CHECK_DELAY = entTime("keep-nick-check-delay", 5, 24*3600, 10));
 	registerObject(REMEMBER_OLD_KEYS = entBool("remember-old-keys", 0));
-	registerObject(TELNET_OWNERS = entInt("telnet-owners", 0, 2, 1));
 	registerObject(MAX_MATCHES = entInt("max-matches", 0, MAX_INT, 20));
 	registerObject(PERIP_MAX_SHOWN_CONNS = entInt("perip-max-shown-conns", 0, MAX_INT, 6));
 	registerObject(PERIP_BURST_SIZE = entInt("perip-burst-size", 1, MAX_INT, 30));
@@ -244,22 +280,29 @@ settings::settings()
 	registerObject(SYNFLOOD_IGNORE_TIME = entTime("synflood-ignore-time", 0, MAX_INT, 300));
 	registerObject(BIE_MODE_BOUNCE_TIME = entTime("bIe-mode-bounce-time", 0, MAX_INT, 3600));
 	registerObject(WASOP_CACHE_TIME = entTime("wasop-cache-time", 0, MAX_INT, 3000));
-	registerObject(AWAY_TIME = entTime("away-time", 60, MAX_INT, 8*3600));
-	registerObject(CHAT_TIME = entTime("chat-time", 60, MAX_INT, 6*3600));
 	registerObject(BETWEEN_MSG_DELAY = entTime("between-msg-delay", 10, MAX_INT, 5*60));
 	registerObject(RANDOMNESS = entPerc("randomness", -100, 0, -50));
-	registerObject(PUBLIC_AWAY = entBool("public-away", 0));
 	registerObject(IDENT_CLONES = entInt("ident-clones", 0, MAX_INT, 3));
 	registerObject(HOST_CLONES = entInt("host-clones", 0, MAX_INT, 3));
 	registerObject(PROXY_CLONES = entInt("proxy-clones", 0, MAX_INT, 4));
 	//FIXME: clone-life-time == 0
 	registerObject(CLONE_LIFE_TIME = entTime("clone-life-time", 0, MAX_INT, 0));
-	registerObject(CRITICAL_BOTS = entInt("critical-bots", 0, MAX_INT, 0));
 	registerObject(QUARANTINE_TIME = entTime("quarantine-time", 0, 120, 15));
 	registerObject(BACKUP_MODE_DELAY = entTime("backup-mode-delay", 0, 60, 7));
 	registerObject(DONT_TRUST_OPS = entInt("dont-trust-ops", 0, 2, 0));
 	registerObject(SERVER_LIMIT_TIME = entTime("server-limit-time", 0, MAX_INT, 5));
-	registerObject(BOTS_CAN_ADD_SHIT = entBool("bots-can-add-shit", 0));
+	registerObject(BOTS_CAN_ADD_BANS = entBool("bots-can-add-bans", 0));
+	registerObject(RESOLVE_USERS_HOSTNAME = entBool("resolve-users-hostname", 0));
+	registerObject(ALLOW_SET_PASS_BY_MSG = entBool("allow-set-pass-by-msg", 0));
+        registerObject(KICKREASON = entString("kickreason", 1, 255));
+        registerObject(LIMIT_KICKREASON = entString("limit-kickreason", 1, 255));
+        registerObject(KEEPOUT_KICKREASON = entString("keepout-kickreason", 1, 255));
+	registerObject(CLONECHECK_KICKREASON = entString("clonecheck-kickreason", 1, 255));
+        registerObject(PARTREASON = entString("partreason", 1, 255));
+        registerObject(QUITREASON = entString("quitreason", 1, 255));
+        registerObject(CYCLEREASON = entString("cyclereason", 1, 255));
+	registerObject(MAX_CHANNEL_LIST_MODES = entInt("max-channel-list-modes", 1, MAX_INT, 42));
+	registerObject(LAG_CHECK_TIME = entTime("lag-check-time", 10, MAX_INT, 60));
 }
 
 /*
@@ -275,7 +318,6 @@ chanset::chanset()
 	registerObject(GETOP_BOTS = entInt("getop-bots", 0, MAX_INT, 1));
 	registerObject(INVITE_BOTS = entInt("invite-bots", 0, MAX_INT, 2));
 	registerObject(GUARDIAN_BOTS = entInt("guardian-bots", 0, MAX_INT, 2));
-	registerObject(CHANNEL_CTCP = entBool("channel-ctcp", 1));
 	registerObject(ENFORCE_BANS = entInt("enforce-bans", 0, 2, 1));
 	registerObject(ENFORCE_LIMITS = entBool("enforce-limits", 0));
 	registerObject(STOP_NETHACK = entBool("stop-nethack", 1));
@@ -287,7 +329,6 @@ chanset::chanset()
 	registerObject(LIMIT_BOTS = entInt("limit-bots", 1, 2, 1));
 	registerObject(LIMIT_TOLERANCE = entPerc("limit-tolerance", -100, MAX_INT, -50));
 	registerObject(OWNER_LIMIT_TIME = entTime("owner-limit-time", 0, MAX_INT, 15));
-	registerObject(TAKEOVER = entBool("takeover", 0));
 	registerObject(BITCH = entBool("bitch", 1));
 	registerObject(WASOPTEST = entBool("wasoptest", 1));
 	registerObject(CLONECHECK = entInt("clonecheck", 0, 2, 1));
@@ -297,9 +338,9 @@ chanset::chanset()
 	registerObject(LOCKDOWN = entBool("lockdown", 0));
 	registerObject(LOCKDOWN_TIME = entTime("lockdown-time", 0, MAX_INT, 180));
 	registerObject(PROTECT_CHMODES = entInt("protect-chmodes", 0, 2, 2));
-	registerObject(MODE_LOCK = entChattr("mode-lock", "+nt"));
+	registerObject(MODE_LOCK = entString("mode-lock", 1, 255, "+nt"));
 	registerObject(STRICT_BANS = entBool("strict-bans", 1));
-	registerObject(CHECK_SHIT_ON_NICK_CHANGE = entBool("check-shit-on-nick-change", 0));
+	registerObject(CHECK_BAN_ON_NICK_CHANGE = entBool("check-ban-on-nick-change", 0));
 	registerObject(INVITE_ON_UNBAN_REQUEST = entBool("invite-on-unban-request", 0));
 	registerObject(KEEPOUT = entBool("keepout", 0));
 	registerObject(IDIOTS = entInt("idiots", 0, 5, 2));
@@ -360,21 +401,10 @@ CONFIG::CONFIG()
 	registerObject(nickappend = entWord("nickappend", 1, 255, "_-^`|"));
 	registerObject(altnick = entWord("altnick", 1, 15));
 	registerObject(ident = entWord("ident", 1, 12, pent->pw_name ? pent->pw_name : "nobody"));
-	registerObject(oidentd_cfg = entWord("oidentd-config", 1, 255, ""));
 	registerObject(handle = entWord("handle", 1, 15, ""));		// = nick
 
-	registerObject(bnc = entHPPH("bnc",
-			new entHost("host", entHost::ipv4 | entHost::domain),
-			new entInt("port", 1, 65535, 0),
-			new entWord("pass", 1, 256)));
-
-	registerObject(router = entHPPH("router",
-			new entHost("host", entHost::ipv4 | entHost::domain),
-			new entInt("port", 1, 65535, 0),
-			new entWord("pass", 1, 256)));
-
 	registerObject(hub = entHub("hub",
-			new entHost("host", entHost::ipv4 | entHost::domain | entHost::use_ssl),
+			new entHost("host", entHost::ipv4 | entHost::ipv6 | entHost::domain | entHost::use_ssl),
 			new entInt("port", 1, 65535, 0),
 			new entMD5Hash("pass"),
 			new entWord("handle", 0, 15)));
@@ -383,7 +413,7 @@ CONFIG::CONFIG()
 	for(i=0; i<MAX_ALTS; ++i)
 	{
 		registerObject(alt[i] = entHub("alt",
-					   new entHost("host", entHost::ipv4 | entHost::domain | entHost::use_ssl),
+					   new entHost("host", entHost::ipv4 | entHost::ipv6 | entHost::domain | entHost::use_ssl),
 					   new entInt("port", 1, 65535, 0)));
 		alt[i].setDontPrintIfDefault(true);
 		alt_storage.add(&alt[i]);
@@ -429,29 +459,43 @@ CONFIG::CONFIG()
 	}
 
 	registerObject(myipv4 = entHost("myipv4", entHost::ipv4 | entHost::bindCheck));
+	registerObject(myipv6 = entHost("myipv6", entHost::ipv6 | entHost::bindCheck));
 	registerObject(vhost = entHost("vhost", entHost::ipv4 | entHost::ipv6 | entHost::bindCheck));
 	registerObject(logfile = entWord("logfile", 1, 16));
 	registerObject(userlist_file = entWord("userlist", 1, 255));	// = nick
 	registerObject(dontfork = entBool("dontfork", 0));
 	registerObject(keepnick = entBool("keepnick", 0));
-	registerObject(kickreason = entString("kickreason", 1, 255));
-	registerObject(limitreason = entString("limitreason", 1, 255));
-	registerObject(keepoutreason = entString("keepoutreason", 1, 255));
-	registerObject(partreason = entString("partreason", 1, 255));
-	registerObject(quitreason = entString("quitreason", 1, 255));
-	registerObject(cyclereason = entString("cyclereason", 1, 255));
 	registerObject(botnetword = entWord("botnetword", 1, 255, "###\001The\001Psotnic\001Project\001###"));
-	registerObject(listenport = entInt("listen", 0, 65535, 0));
-#ifdef HAVE_SSL
-	registerObject(ssl_listenport = entInt("ssl_listen", 0, 65535, 0));
-#endif
+
+	registerObject(listenport_storage = entMult("listen"));
+	for(i=0; i<MAX_LISTENPORTS; ++i)
+	{
+		registerObject(listenport[i] = entListener("listen", 
+				new entHost("host", entHost::ipv4 | entHost::ipv6 | entHost::use_ssl),
+				new entInt("port", 1, 65535, 0),
+				new entWord("options", 0, 15)));
+                listenport[i].setDontPrintIfDefault(true);
+                listenport_storage.add(&listenport[i]);
+
+	}
+
 	registerObject(ctcptype = entInt("ctcptype", -1, 8, -1));
-	registerObject(ownerpass = entMD5Hash("ownerpass"));
+
+	registerObject(ownerpass_storage = entMult("ownerpass"));
+        for(i=0; i<MAX_OWNERPASSES; ++i)
+        {
+		registerObject(ownerpass[i] = entMD5Hash("ownerpass"));
+		ownerpass[i].setDontPrintIfDefault(true);
+		ownerpass_storage.add(&ownerpass[i]);
+	}
+
 #ifdef HAVE_ADNS
-	registerObject(resolve_threads = entInt("resolve-threads", 0, 256, 0));
+	registerObject(resolve_threads = entInt("resolve-threads", 0, 256, 1));
 	registerObject(domain_ttl = entTime("domain-ttl", 0, MAX_INT, 2*3600));
 #endif
-	registerObject(check_shit_on_nick_change = entBool("check-shit-on-nick-change", 0));
+	registerObject(check_ban_on_nick_change = entBool("check-ban-on-nick-change", 0));
+	registerObject(save_userlist = entBool("save-userlist", 0));
+	registerObject(partyline_servername = entWord("partyline-servername", 1, 255, "psotnic.com"));
 }
 
 void CONFIG::polish()
@@ -470,19 +514,25 @@ void CONFIG::polish()
 	if(ctcptype == -1)
 		ctcptype.value = (rand() % 5) + 2;
 
+	if(!save_userlist && (config.bottype == BOT_MAIN || config.bottype == BOT_SLAVE))
+		save_userlist.setValue("save-userlist", "ON");
+
 	//lock some options
 	botnetword.setReadOnly(true);
-	ownerpass.setReadOnly(true);
 	ctcptype.setReadOnly(true);
+	save_userlist.setReadOnly(true);
 }
 
 options::event *CONFIG::save(bool decrypted)
 {
 	inetconn conf;
+	char cwd[MAX_LEN];
+
+	getcwd(cwd, MAX_LEN);
 
 	if(conf.open(file, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR) < 1)
 	{
-		_event.setError(NULL, "cannot create crypted config '%s': %s\n", (const char *) file, strerror(errno));
+		_event.setError(NULL, "cannot create crypted config '%s/%s': %s\n", cwd, (const char *) file, strerror(errno));
 		return &_event;
 	}
 
@@ -493,10 +543,27 @@ options::event *CONFIG::save(bool decrypted)
 	while(i)
 	{
 		if(!i->isDefault() && i->isPrintable())
-			conf.send(i->print(), NULL);
+			conf.send("%s", i->print());
 		i++;
 	}
 
 	_event.setOk(NULL, "config file has been saved");
 	return &_event;
 }
+
+bool CONFIG::checkOwnerpass(const char *str)
+{
+  int i;
+
+  for(i=0; i < MAX_OWNERPASSES; i++)
+  {
+    if(ownerpass[i].isDefault())
+      continue;
+
+    if(MD5Validate(config.ownerpass[i], str, strlen(str)))
+      return true;
+  }
+
+  return false;
+}
+

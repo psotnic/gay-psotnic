@@ -37,8 +37,8 @@
  *
 */
 
-#include "../prots.h"
-#include "../global-var.h"
+#include <prots.h>
+#include <global-var.h>
 
 extern flagTable FT[];
 
@@ -173,12 +173,14 @@ void vctrl_setSave() { vctrl_next_save=NOW+vset.CFG_SAVE_DELAY; }
 void vctrl_load()
 {
     FILE *fh;
-    char arg[10][MAX_LEN], buffer[MAX_LEN];
+    char arg[10][MAX_LEN], buffer[MAX_LEN], cfg_file[MAX_LEN];
     int line=0;
     options::event *e;
     CHANLIST *cl;
 
-    if(!(fh=fopen(VCTRL_CFG_FILE, "r")))
+    snprintf(cfg_file, MAX_LEN, "%s%s", MODULES_DIR, VCTRL_CFG_FILE);
+
+    if(!(fh=fopen(cfg_file, "r")))
         return;
 
     while(fgets(buffer, MAX_LEN, fh))
@@ -201,11 +203,11 @@ void vctrl_load()
 	// else ..
 
         if(e && !e->ok)
-            printf("[-] %s:%d: %s\n", VCTRL_CFG_FILE, line, (const char *) e->reason);
+            printf("[-] %s:%d: %s\n", cfg_file, line, (const char *) e->reason);
     }
 
     fclose(fh);
-    //net.send(HAS_N, "[*] Loading voicecontrol config", NULL);
+    //net.send(HAS_N, "[*] Loading voicecontrol config");
 }
 
 void vctrl_save()
@@ -213,10 +215,13 @@ void vctrl_save()
     FILE *fh;
     ptrlist<ent>::iterator i;
     int j;
+    char cfg_file[MAX_LEN];
 
-    if(!(fh=fopen(VCTRL_CFG_FILE, "w")))
+    snprintf(cfg_file, MAX_LEN, "%s%s", MODULES_DIR, VCTRL_CFG_FILE);
+
+    if(!(fh=fopen(cfg_file, "w")))
     {
-        net.send(HAS_N, "[\002vctrl\002] cannot open ", VCTRL_CFG_FILE, " for writing: ", strerror(errno), NULL);
+        net.send(HAS_N, "[vctrl] cannot open %s for writing: %s", cfg_file, strerror(errno));
         vctrl_setSave(); // try again later
         return;
     }
@@ -241,7 +246,7 @@ void vctrl_save()
 
     fclose(fh);
     vctrl_next_save=0;
-    net.send(HAS_N, "[\002vctrl\002] Autosaving voicecontrol config", NULL);
+    net.send(HAS_N, "[vctrl] Autosaving voicecontrol config");
 }
 
 void hook_privmsg(const char *from, const char *to, const char *msg)
@@ -352,7 +357,7 @@ void hook_mode(chan *ch, const char (*mode)[MODES_PER_LINE], const char **user, 
                 strncat(buf, fptr->command, MAX_LEN-strlen(buf)-1);
             }
 
-            ME.notice(*user, buf, NULL);
+            ME.notice(*user, "%s", buf);
         }
     }
 }
@@ -592,8 +597,7 @@ void vctrl_topic(chan *ch, chanuser *from, char *text)
         buffer.push(buffer2);
     }
 
-    net.irc.send("TOPIC ", (const char *) ch->name, " :", buffer.data, NULL);
-    penalty+=3;
+    net.irc.send("TOPIC %s :%s", (const char *) ch->name, buffer.data);
 }
 
 // replaces %n by u->nick, %i by u->ident and %h by u->host
@@ -678,7 +682,7 @@ void vctrl_notice(const char *to, const char *msg, ...)
     va_start(list, msg);
     vsnprintf(buffer, MAX_LEN, msg, list);
     va_end(list);
-    ME.notice(to, buffer, NULL);
+    ME.notice(to, "%s", buffer);
 }
 
 bool vctrl_check_flag(CHANLIST *cl, chanuser *u, const char *var)
@@ -697,7 +701,7 @@ bool vctrl_check_flag(CHANLIST *cl, chanuser *u, const char *var)
 
     if(!flagstr)
     {
-        net.send(HAS_N, "[\002vctrl\002] unknown variable '", var, "'", NULL);
+        net.send(HAS_N, "[vctrl] unknown variable '%s'", var);
         return true;
     }
 
@@ -708,7 +712,7 @@ bool vctrl_check_flag(CHANLIST *cl, chanuser *u, const char *var)
 
     if(!(ft=userlist.findFlagByLetter(needed_flag, FT)))
     {
-        net.send(HAS_N, "[\002vctrl\002] unknown flag in variable '", var, "'", cl?" for channel ":"", cl?(const char*)cl->name:"", " (+",  flagstr, ")", NULL);
+        net.send(HAS_N, "[vctrl] unknown flag in variable '%s'%s %s (+%s)", var, cl?" for channel ":"", cl?(const char*)cl->name:"", flagstr);
         return false;
     }
 
@@ -762,7 +766,7 @@ void hook_botnetcmd(const char *from, const char *cmd)
         {
             if(!(cl=userlist.findChanlist(arg[2])))
             {
-                net.sendOwner(arg[0], "unknown channel", NULL);
+                net.sendOwner(arg[0], "unknown channel");
                 return;
             }
 

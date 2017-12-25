@@ -37,7 +37,6 @@ protmodelist::entry::entry(const char *_mask, const char *_by, const char *_reas
 	when = _when;
 	expires = _expires;
 	sticky = _sticky;
-	last_used = 0;
 }
 
 protmodelist::entry::~entry()
@@ -53,13 +52,13 @@ char *protmodelist::entry::fullReason()
 
 	if(expires && expires - NOW <= 20*3600)
 	{
-		snprintf(buf, MAX_LEN, "\002%s\002: %s - expires: %s", by, reason,
+		snprintf(buf, MAX_LEN, "%s - expires: %s", reason,
 			timestr("%T", expires));
 	}
 
 	else
 	{
-		snprintf(buf, MAX_LEN, "\002%s\002: %s - expires: %s", by, reason,
+		snprintf(buf, MAX_LEN, "%s - expires: %s", reason,
 			expires ? timestr("%d/%m/%Y", expires) : "never");
 	}
 
@@ -162,7 +161,7 @@ int protmodelist::remove(int n)
 	return 0;
 }
 
-int protmodelist::sendShitsToOwner(inetconn *c, const char *name, int i)
+int protmodelist::sendBansToOwner(inetconn *c, const char *name, int i)
 {
 	//int i = start;
 	ptrlist<entry>::iterator s = data.begin();
@@ -170,26 +169,23 @@ int protmodelist::sendShitsToOwner(inetconn *c, const char *name, int i)
 	if(s)
 	{
 		if(type == BAN)
-			c->send(name, " shits: ", NULL);
+			c->send(name, " bans: ");
 		else if(type == INVITE)
-			c->send(name, " invites: ", NULL);
+			c->send(name, " invites: ");
 		else if(type == EXEMPT)
-			c->send(name, " exempts: ", NULL);
+			c->send(name, " exempts: ");
 		else if(type == REOP)
-			c->send(name, " reops: ", NULL);
+			c->send(name, " reops: ");
 
 		while(s)
 		{
 			++i;
-			c->send(i > 99 ? "[\002" : i > 9 ? "[ \002" : "[  \002", itoa(i), "\002]\002:\002 ", s->mask,
-					" (expires\002:\002 ", s->expires ?
-					timestr("%d/%m/%Y %T", s->expires) : "never", ")", NULL);
+			c->send("%s %s %s %s %s %s %s", i > 99 ? "[" : i > 9 ? "[ " : "[  ", itoa(i), "]: ", s->mask,
+					" (expires: ", s->expires ?
+					timestr("%d/%m/%Y %T", s->expires) : "never", ")");
 
-			c->send(s->sticky ? "[ * ]  " : "       ", s->by, "\002:\002 ", s->reason, NULL);
-			c->send("       created\002:\002 ", timestr("%d/%m/%Y %T", s->when), NULL);
-			if(s->last_used)
-				c->send("       last used\002:\002 ", timestr("%d/%m/%Y %T", s->last_used), NULL);
-
+			c->send("%s %s %s %s", s->sticky ? "[ * ]  " : "       ", s->by, ": ", s->reason);
+			c->send("       created: %s", timestr("%d/%m/%Y %T", s->when));
 			s++;
 		}
 	}
@@ -208,7 +204,7 @@ void protmodelist::sendToUserlist(inetconn *c, const char *name)
 			case BAN : if(s->sticky)
 				   	botnet_cmd = S_ADDSTICK;
 				   else
-					botnet_cmd = S_ADDSHIT;
+					botnet_cmd = S_ADDBAN;
 				   break;
 			case INVITE : botnet_cmd = S_ADDINVITE; break;
 			case EXEMPT : botnet_cmd = S_ADDEXEMPT; break;
@@ -216,22 +212,20 @@ void protmodelist::sendToUserlist(inetconn *c, const char *name)
 			default : return;
 		}
 
-		c->send(botnet_cmd, " ", name, " ", s->mask, " ", s->by, " ",
-				itoa(s->when), " ", itoa(s->expires), " ", s->reason, NULL);
-		//if(s->last_used)
-		//	c->send(S_LASTUSED_PROTMODE, " ", type, " ", itoa(s->last_used), NULL); 
+		c->send("%s %s %s %s %d %d %s", botnet_cmd, name, s->mask, s->by,
+				s->when, s->expires, s->reason);
 		s++;
 	}
 }
 
-int protmodelist::sendShitsToOwner(inetconn *c, int type, const char *channel, const char *)
+int protmodelist::sendBansToOwner(inetconn *c, int type, const char *channel, const char *)
 {
 	int matches = 0;
 	CHANLIST *chLst;
 
 	if((!channel || !*channel || !strcmp(channel, "*")) && c->checkFlag(HAS_N))
 	{
-		matches += userlist.protlist[type]->sendShitsToOwner(c, "Global");
+		matches += userlist.protlist[type]->sendBansToOwner(c, "Global");
 	}
 
 	if(channel && *channel)
@@ -239,14 +233,14 @@ int protmodelist::sendShitsToOwner(inetconn *c, int type, const char *channel, c
 		foreachMatchingChanlist(chLst, channel)
 		{
 			if(c->checkFlag(HAS_N) || c->checkFlag(HAS_N, _i))
-				matches += chLst->protlist[type]->sendShitsToOwner(c, chLst->name);
+				matches += chLst->protlist[type]->sendBansToOwner(c, chLst->name);
 		}
 	}
 
 	if(!matches)
-		c->send("No matches has been found", NULL);
+		c->send("No matches has been found");
 	else
-		c->send("--- Found ", itoa(matches), matches == 1 ? " match" : " matches", NULL);
+		c->send("--- Found %d %s", matches, matches == 1 ? " match" : " matches");
 
 	return matches;
 }
@@ -295,7 +289,7 @@ int protmodelist::expire(const char *channel)
 
 	switch(type)
 	{
-		case BAN : botnet_cmd=S_RMSHIT; type_str="shit"; break;
+		case BAN : botnet_cmd=S_RMBAN; type_str="ban"; break;
 		case INVITE : botnet_cmd=S_RMINVITE; type_str="invite"; break;
 		case EXEMPT : botnet_cmd=S_RMEXEMPT; type_str="exempt"; break;
 		case REOP : botnet_cmd=S_RMREOP; type_str="reop"; break;
@@ -308,11 +302,11 @@ int protmodelist::expire(const char *channel)
 		n++;
 		if(s->expires && s->expires <= NOW)
 		{
-			net.send(HAS_B, botnet_cmd, " ", s->mask, " ", channel, NULL);
+			net.send(HAS_B, "%s %s %s", botnet_cmd, s->mask, channel);
 
 			if(channel)
 			{
-				net.send(HAS_N, "[*] ", type_str, " `\002", s->mask, "'\002 on `\002", channel, "\002' has expired", NULL);
+				net.send(HAS_N, "%s %s on %s has expired", type_str, s->mask, channel);
 	
 				if((ch=ME.findChannel(channel)) && ch->synced() && ch->myTurn(ch->chset->GUARDIAN_BOTS, hash32(s->mask)))
 					ch->modeQ[PRIO_LOW].add(NOW+5, _mode, s->mask);
@@ -320,7 +314,7 @@ int protmodelist::expire(const char *channel)
 
 			else
 			{
-				net.send(HAS_N, "[*] ", type_str, " `\002", s->mask, "'\002 has expired", NULL);
+				net.send(HAS_N, "%s %s has expired", type_str, s->mask);
 
 				foreachSyncedChannel(ch)
 					if(ch->myTurn(ch->chset->GUARDIAN_BOTS, hash32(s->mask)))
@@ -328,7 +322,7 @@ int protmodelist::expire(const char *channel)
 			}
 
 			data.removeLink(s);
-			++userlist.SN;
+			userlist.updated(false);
 			++i;
 		}
 		s = n;
@@ -419,106 +413,75 @@ protmodelist::entry *protmodelist::findBestByMask(const char *channel, const cha
 	return userlist.protlist[type]->findByMask(mask);
 }
 
-protmodelist::entry *protmodelist::updateLastUsedTime(const char *channel, const char *mask, int type)
-{
-	entry *e = findBestByMask(channel, mask, type);
-	if(e)
-	{
-		e->last_used = NOW;
-		DEBUG(printf("[D] Updating SHIT last use: %s\n", e->mask));
-		userlist.SN++;
-	}
-	return e;
-}
-
-/** Adds shit or tells the main bot to add it.
- * This function should only be used when a bot adds a shit.
- * Please check if set.BOTS_CAN_ADD_SHIT is true before you use this function.
+/** Adds a ban or tells the main bot to add it.
+ * This function should only be used when a bot adds a ban.
+ * Please check if set.BOTS_CAN_ADD_BANS is true before you use this function.
  *
  * \author patrick <patrick@psotnic.com>
- * \param channel channel, can be "*" if you want global shit, cannot contain spaces
+ * \param channel channel, can be "*" if you want global ban, cannot contain spaces
  * \param mask mask, must have format nick!ident@host, cannot contain spaces
- * \param from name of who set the shit, does not have to be a valid user, cannot contain spaces
- * \param delay time in seconds how long the shit should last (e.g. 60)
+ * \param from name of who set the ban, does not have to be a valid user, cannot contain spaces
+ * \param delay time in seconds how long the ban should last (e.g. 60)
  * \param reason reason
  * \param bot optional and should only be used by parse-botnet.cpp
- * \return 2 if shit has been added (only for main bots)
- *         1 if shit request has been sent (for slaves or leafs)
+ * \return 2 if ban has been added (only for main bots)
+ *         1 if ban request has been sent (for slaves or leafs)
  *         0 if an error occurred (main bot is down, mask conflict, channel not found) 
 */
 
-int protmodelist::addShit(const char *channel, const char *mask, const char *from, int delay, const char *reason, const char *bot)
+int protmodelist::addBan(const char *channel, const char *mask, const char *from, int delay, const char *reason, const char *bot)
 {
-    int chanNum, i;
-    protmodelist *shit;
+    int chanNum;
+    protmodelist *ban;
     protmodelist::entry *s;
     chan *ch;
 
     if(config.bottype == BOT_MAIN)
     {
         if(!strcmp(channel, "*"))
-            shit=userlist.protlist[BAN];
+            ban=userlist.protlist[BAN];
         else
         {
             if((chanNum=userlist.findChannel(channel))==-1)
                 return 0;
 
-            shit=userlist.chanlist[chanNum].protlist[BAN];
+            ban=userlist.chanlist[chanNum].protlist[BAN];
         }
 
-        if((s=shit->conflicts(mask)))
+        if((s=ban->conflicts(mask)))
             return 0;
 
-        s=shit->add(mask, from, NOW, NOW+delay, reason, false);
-        ++userlist.SN;
-        userlist.nextSave = NOW + SAVEDELAY;
-        net.send(HAS_B, S_ADDSHIT , " ", channel, " ", s->mask, " ", s->by, " 0 ", itoa(s->expires), " ", s->reason, NULL);
+        s=ban->add(mask, from, NOW, NOW+delay, reason, false);
+	userlist.updated();
+        net.send(HAS_B, "%s %s %s %s %s %d %s", S_ADDBAN , channel, s->mask, s->by, " 0 ", s->expires, s->reason);
 
         if(!strcmp(channel, "*"))
         {
             if(bot)
-                net.send(HAS_N, "Added shit `\002", mask, "\002' requested by bot `\002", bot, "\002'", NULL);
+                net.send(HAS_N, "Added ban %s requested by bot %s", mask, bot);
             else
-                net.send(HAS_N, "Added shit `\002", mask, "\002'", NULL);
+                net.send(HAS_N, "Added ban %s", mask);
 
             foreachSyncedChannel(ch)
-                ch->applyShit(s);
+                ch->applyBan(s);
         }
 
         else
         {
             if(bot)
-                net.send(HAS_N, "Added shit `\002", mask, "\002' on `\002", channel, "\002' requested by bot `\002", bot, "\002'", NULL);
+                net.send(HAS_N, "Added ban %s on %s requested by bot %s", mask, channel, bot);
             else
-                net.send(HAS_N, "Added shit `\002", mask, "\002' on `\002", channel, "\002'", NULL);
+                net.send(HAS_N, "Added ban %s on %s", mask, channel);
 
             if((ch=ME.findChannel(channel)))
-                ch->applyShit(s);
+                ch->applyBan(s);
         }
 
         return 2;
     }
 
     else
-    {
-        if(net.hub.fd && net.hub.isMain())
-        {
-            net.hub.send(S_REQSHIT, " ", channel, " ", mask, " ", from, " ", itoa(delay), " ", reason, NULL);
-            return 1;
-        }
-
-        else
-        {
-            for(i=0; i<net.max_conns; ++i)
-            {
-                if(net.conn[i].isMain() && net.conn[i].fd)
-                {
-                    net.conn[i].send(S_REQSHIT, " ", channel, " ", mask, " ", from, " ", itoa(delay), " ", reason, NULL);
-                    return 1;
-                }
-            }
-        }
-    }
+	return net.sendHub("%s %s %s %s %d %s", S_REQBAN, channel, mask, from, delay, reason);
 
     return 0;
 }

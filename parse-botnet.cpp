@@ -21,7 +21,7 @@
 #include "prots.h"
 #include "global-var.h"
 
-int requestShit(const char *channel, const char *mask, const char *from, int delay, const char *reason, const char *bot);
+int requestBan(const char *channel, const char *mask, const char *from, int delay, const char *reason, const char *bot);
 
 static char arg[10][MAX_LEN];
 static chan *ch;
@@ -29,7 +29,12 @@ static chanuser *p;
 
 int parse_botnet(inetconn *c, char *data)
 {
-	if(!strlen(data)) return 0;
+	if(!c)
+		return 0;
+
+	if(!data || *data == '\0')
+		return 0;
+
 	str2words(arg[0], data, 10, MAX_LEN);
 
 	/* CHNICK [nick [irc server] ] */
@@ -65,7 +70,7 @@ int parse_botnet(inetconn *c, char *data)
 				mem_strcpy(bot->origin, arg[3]);
                 bot->status = STATUS_CONNECTED + STATUS_REGISTERED + STATUS_BOT + STATUS_REDIR;
 				bot->handle = h;
-    			net.propagate(c, data, NULL);
+    			net.propagate(c, "%s", data);
 
 				if(config.bottype == BOT_LEAF && config.currentHub != &config.hub &&
 					!strcmp(arg[1], config.hub.handle))
@@ -81,6 +86,7 @@ int parse_botnet(inetconn *c, char *data)
 	/* BQUIT [reason] */
 	if(!strcmp(arg[0], S_BQUIT))
 	{
+		// FIXME: this lets leaf close the connection to a slave when then main goes down -- patrick
 		c->close(srewind(data, 1));
 		return 1;
 	}
@@ -92,10 +98,10 @@ int parse_botnet(inetconn *c, char *data)
 
 		if(from || !strcmp(arg[3], S_FORWARD))
 		{
-			if(from->fd != c->fd)
+			if(from && from->fd != c->fd)
 			{
-				net.send(HAS_N, "[!] Hacked packet from ", c->handle->name, "@", from->name, ": ", data, NULL);
-				c->close("Hacked packed -- internal error or smb is doing sth nasty");
+				net.send(HAS_N, "\002Hacked packet from %s@%s: %s\002", c->handle->name, from->name, data); // TODO: colors
+				c->close("Hacked packed -- internal error or smb is doing sth nasty"); // TODO: colors
 				return 1;
 			}
 		}
@@ -108,8 +114,8 @@ int parse_botnet(inetconn *c, char *data)
 				HANDLE *h = userlist.findHandle(arg[1]);
 				if(!h)
 				{
-					net.send(HAS_N, "[-] Invalid bot join (dsynced ul?) from ", c->name, ": ", arg[1], NULL);
-					net.send(HAS_N, "[*] This should not happnen, please do .restart `\002", c->name, "\002'", NULL);
+					net.send(HAS_N, "Invalid bot join (dsynced ul?) from %s: %s", c->name, arg[1]); // TODO: colors
+					net.send(HAS_N, "This should not happnen, please do .restart %s", c->name); // TODO: colors
 					return 1;
 				}
 
@@ -122,6 +128,7 @@ int parse_botnet(inetconn *c, char *data)
 						config.hub.failures = 0;
 						ME.nextConnToHub = NOW + set.HUB_CONN_DELAY + rand() % set.HUB_CONN_DELAY;
 						net.hub.close("Jumping to main slave");
+						DEBUG(printf("Jumping to main slave\n"));
 						//no point of doing anything else
 						//cos we disconnect from other bots in the botnet
 						return 1;
@@ -132,6 +139,10 @@ int parse_botnet(inetconn *c, char *data)
 					mem_strcpy(from->name, arg[4]);
 					mem_strcpy(from->origin, arg[5]);
 					from->status = STATUS_CONNECTED + STATUS_REGISTERED + STATUS_BOT + STATUS_REDIR;
+#ifdef HAVE_SSL
+					if(net.hub.ssl)
+						from->status |= STATUS_SSL;
+#endif
 					from->handle = h;
 
 					if(from->isMain())
@@ -140,26 +151,33 @@ int parse_botnet(inetconn *c, char *data)
 			}
 			else
 			{
-				net.send(HAS_N, "[!] Invalid packet from ", c->name, ": ", data, NULL);
-				c->close("Invalid packet -- internal error or smb is doing sth nasty");
+				net.send(HAS_N, "\002Invalid packet from %s: %s\002", c->name, data); // TODO: colors
+				c->close("Invalid packet -- internal error or smb is doing sth nasty"); // TODO: colors
 				return 1;
 			}
 		}
 
 		if(!strcmp(arg[2], config.handle))
 		{
-			if(from->isMain())
-				parse_hub(srewind(data, 3));
-			else
-				parse_botnet(from, srewind(data, 3));
+                        if(from)
+			{
+				if(from->isMain())
+					parse_hub(srewind(data, 3));
+				else
+					parse_botnet(from, srewind(data, 3));
+			}
 		}
 		else if(!strcmp(arg[2], "*"))
 		{
-			net.propagate(from, srewind(data, 3), NULL);
-			if(from->isMain())
-				parse_hub(srewind(data, 3));
-			else
-				parse_botnet(from, srewind(data, 3));
+			if(from)
+			{
+				net.propagate(from, "%s", srewind(data, 3));
+
+				if(from->isMain())
+					parse_hub(srewind(data, 3));
+				else
+					parse_botnet(from, srewind(data, 3));
+			}
 		}
 		else
 		{
@@ -169,7 +187,7 @@ int parse_botnet(inetconn *c, char *data)
 			{
 				inetconn *slave = net.findRedirConn(to);
 				if(slave)
-					slave->send(data, NULL);
+					slave->send("%s", data);
 			}
 		}
 		return 1;
@@ -182,7 +200,12 @@ int parse_botnet(inetconn *c, char *data)
 		{
 			p = ch->getUser(c->name);
 			if(p && (p->flags & HAS_B) && (set.GETOP_OP_CHECK ? !(p->flags & IS_OP) : 1))
-				ch->op(p);
+			{
+				if(!ch->modeQ[PRIO_HIGH].find("+o", p->nick))
+					ch->modeQ[PRIO_HIGH].add(NOW, "+o", p->nick);
+				// ch->op(p); - changed 05.08.2010
+			}
+//printf("-> %d\n", penalty.val());
 		}
 		return 1;
 	}
@@ -226,7 +249,7 @@ int parse_botnet(inetconn *c, char *data)
 								ch->modeQ[PRIO_HIGH].add(NOW, "-b", m->mask);
 								ch->modeQ[PRIO_HIGH].flush(PRIO_HIGH);
 
-								c->send(S_COMEON, " ", arg[3], NULL);
+								c->send("%s %s", S_COMEON, arg[3]);
 							}
 						}
 					}
@@ -239,7 +262,7 @@ int parse_botnet(inetconn *c, char *data)
 	/* S_BIDLIMIT <seed> <channel> */
 	if(!strcmp(arg[0], S_BIDLIMIT) && strlen(arg[2]))
 	{
-		net.propagate(c, data, NULL);
+		net.propagate(c, "%s", data);
 		if(penalty >= 10) return 1;
 
 		ch = ME.findChannel(arg[2]);
@@ -247,11 +270,11 @@ int parse_botnet(inetconn *c, char *data)
 		{
 			if(ch->nextlimit != -1)
 			{
-				if(ch->limit <= ch->users.entries())
+				if(ch->limit() <= ch->users.entries())
 				{
 					ch->modeQ[PRIO_HIGH].add(NOW, "+l", itoa(ch->users.entries() + ch->chset->LIMIT_OFFSET));
 					if(ch->modeQ[PRIO_HIGH].flush(PRIO_HIGH))
-						c->send(S_COMEON, " ", arg[2], NULL);
+						c->send("%s %s", S_COMEON, arg[2]);
 				}
 			}
 			else ch->invite(c->name);
@@ -263,8 +286,8 @@ int parse_botnet(inetconn *c, char *data)
 	if(!strcmp(arg[0], S_KEY) && strlen(arg[2]))
 	{
 		ch = ME.findChannel(arg[2]);
-		if(ch && ch->key && *ch->key && ch->myTurn(ch->chset->INVITE_BOTS, atoi(arg[1])))
-			c->send(S_KEYRPL, " ", arg[2], " ", (const char *) ch->key, NULL);
+		if(ch && ch->key() && *ch->key() && ch->myTurn(ch->chset->INVITE_BOTS, atoi(arg[1])))
+			c->send("%s %s %s", S_KEYRPL, arg[2], (const char *) ch->key());
 
 		return 1;
 	}
@@ -297,7 +320,7 @@ int parse_botnet(inetconn *c, char *data)
 	if(!strcmp(arg[0], S_LIST) && strlen(arg[2]))
 	{
 		listcmd(arg[1][0], arg[2], arg[3], arg[4], c);
-			//net.propagate(c, data, NULL);
+			//net.propagate(c, "%s", data);
 		return 1;
 	}
 
@@ -316,8 +339,8 @@ int parse_botnet(inetconn *c, char *data)
 			if(h && userlist.isBot(h) && h->flags[GLOBAL] & HAS_P)
 			{
 				userlist.addHost(h, arg[2], NULL, 0, MAX_HOSTS-1);
-				++userlist.SN;
-				net.send(HAS_B, data, NULL);
+				userlist.save(config.userlist_file);
+				net.send(HAS_B, "%s", data);
 			}
 			return 1;
 		}
@@ -327,17 +350,17 @@ int parse_botnet(inetconn *c, char *data)
 		{
 			char *a = srewind(data, 3);
 			if(a)
-				net.sendOwner(arg[2], "(", arg[1], ") ", a, NULL);
+				net.sendUser(arg[2], "(%s) %s", arg[1], a);
 			return 1;
 		}
 
-		/* S_REQSHIT <chan> <mask> <from> <delay> <reason> */
-		if(!strcmp(arg[0], S_REQSHIT) && strlen(arg[5]))
+		/* S_REQBAN <chan> <mask> <from> <delay> <reason> */
+		if(!strcmp(arg[0], S_REQBAN) && strlen(arg[5]))
 		{
-			if(set.BOTS_CAN_ADD_SHIT)
-				protmodelist::addShit(arg[1], arg[2], arg[3], atol(arg[4]), srewind(data, 5), c->handle->name);
+			if(set.BOTS_CAN_ADD_BANS)
+				protmodelist::addBan(arg[1], arg[2], arg[3], atol(arg[4]), srewind(data, 5), c->handle->name);
 			else
-				net.send(HAS_N, "[?] ", c->handle->name, " requested shit but bots-can-add-shit is OFF", NULL);
+				net.send(HAS_N, "[?] %s requested ban but bots-can-add-bans is OFF", c->handle->name);
 
 			return 1;
 		}
@@ -349,11 +372,42 @@ int parse_botnet(inetconn *c, char *data)
 			userlist.addIdiot(arg[1], arg[2], a, arg[3]);
 		    return 1;
 		}
-
-		/* S_SHITOBSERVED <#channel> <ban_mask> <nick!user@host> */
-		if(!strcmp(arg[0], S_SHITOBSERVED) && strlen(arg[3]))
+		/* S_PASSWD <handle> <password> */
+		if(!strcmp(arg[0], S_PASSWD) && strlen(arg[2]))
 		{
-			protmodelist::updateLastUsedTime(arg[1], arg[2], BAN);
+			HANDLE *h;
+
+			if(!set.ALLOW_SET_PASS_BY_MSG)
+			{
+				net.send(HAS_N, "\002%s failed to set password for %s: allow-set-pass-by-msg is OFF\002", c->handle->name, arg[1]);
+				return 1;
+			}
+
+			h = userlist.findHandle(arg[1]);
+
+			if(!h)
+			{
+				net.send(HAS_N, "\002%s failed to set password for %s: no such user\002", c->handle->name, arg[1]);
+				return 1;
+			}
+
+			if(h->flags[GLOBAL] & (HAS_X | HAS_S | HAS_N | HAS_M))
+			{
+				net.send(HAS_N, "\002%s failed to set password for %s: too high flags\002", c->handle->name, arg[1]);
+				return 1;
+			}
+
+
+			if(!strcmp((const char*) h->pass, "0000000000000000") || !strlen((const char*) h->pass))
+			{
+				userlist.setPassword(arg[1], arg[2]);
+				net.send(HAS_B, "%s %s %s", S_PASSWD, arg[1], arg[2]);
+			}
+
+			else
+				net.send(HAS_N, "\002%s failed to set password for %s: password is already set\002", c->handle->name, arg[1]);
+
+			return 1;
 		}
 	}
 	return 0;

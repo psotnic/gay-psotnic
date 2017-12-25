@@ -15,23 +15,17 @@ extern ign ignore;
 extern fifo ctcp;
 extern fifo invite;
 extern QTIsaac<8, int> Isaac;
-extern idle antiidle;
 extern unit_table ut_time[];
 extern unit_table ut_perc[];
-extern asyn_socks5 socks5;
 extern update psotget;
 extern int hostNotify;
 extern int stopPsotnic;
 extern ptrlist<module> modules;
 extern bool stopParsing;
+extern bool updateNotify;
 
 #ifdef HAVE_DEBUG
 extern int debug;
-#endif
-extern int creation;
-
-#ifdef HAVE_TCL
-extern tcl tclparser;
 #endif
 
 //extern int noulimit;

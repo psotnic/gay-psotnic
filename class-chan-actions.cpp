@@ -27,32 +27,20 @@ void chan::updateLimit()
 	char buf[MAX_LEN];
 	int tolerance;
 
-	if(nextlimit == -1 || !synced())
+	if(!chset->LIMIT || nextlimit == -1 || !synced())
 		return;
+
 	if(chset->LIMIT_TOLERANCE > 0)
 		tolerance = chset->LIMIT_TOLERANCE;
 	else
 		tolerance = (chset->LIMIT_TOLERANCE * chset->LIMIT_OFFSET)/(-100);
 
-	if((chset->LIMIT || chset->MODE_LOCK.hasFlag(0,'l',1))  && nextlimit <= NOW && me->flags & IS_OP && myTurn(chset->LIMIT_BOTS))
+	if(nextlimit <= NOW && me->flags & IS_OP && myTurn(chset->LIMIT_BOTS))
 	{
-		if(chset->MODE_LOCK.hasFlag(0,'l',1))
+		if((limit() <= users.entries() + chset->LIMIT_OFFSET - tolerance) || (limit() > users.entries() + chset->LIMIT_OFFSET + tolerance))
 		{
-			if(limit != chset->MODE_LOCK.getLimit())
-			{
-				sprintf(buf, "%ld", chset->MODE_LOCK.getLimit());
-				net.irc.send("MODE ", (const char *) name, " +l ", buf, NULL);
-				penalty += 4;
-			}
-		}
-		else
-		{
-			if((limit <= users.entries() + chset->LIMIT_OFFSET - tolerance) || (limit > users.entries() + chset->LIMIT_OFFSET + tolerance))
-			{
-				sprintf(buf, "%d", users.entries() + chset->LIMIT_OFFSET);
-				net.irc.send("MODE ", (const char *) name, " +l ", buf, NULL);
-				penalty += 4;
-			}
+			sprintf(buf, "%d", users.entries() + chset->LIMIT_OFFSET);
+			net.irc.send("MODE %s +l %s", (const char *) name, buf);
 		}
 
 		nextlimit = NOW + chset->LIMIT_TIME_UP + rand() % 10;
@@ -61,9 +49,9 @@ void chan::updateLimit()
 
 void chan::enforceLimits()
 {
-	if(chset->ENFORCE_LIMITS && limit && synced())
+	if(chset->ENFORCE_LIMITS && limit() && synced())
 	{
-		int n = users.entries() - limit;
+		int n = users.entries() - limit();
 		ptrlist<chanuser>::iterator u = users.begin();
 
 		if(n > 0)
@@ -72,7 +60,7 @@ void chan::enforceLimits()
 			{
 				if(!(u->flags & HAS_F))
 				{
-					u->setReason(config.limitreason);
+					u->setReason(set.LIMIT_KICKREASON);
 					toKick.sortAdd(u);
 					--n;
 				}
@@ -129,8 +117,7 @@ int chan::op(chanuser **MultHandle, int num)
 		}
 		if(j)
 		{
-			net.irc.send("MODE ", (const char *) name, j == 3 ? " +ooo" : j == 2 ? " +oo" : " +o", a, NULL);
-			penalty += 3*j + 1;
+			net.irc.send("MODE %s %s %s", (const char *) name, j == 3 ? " +ooo" : j == 2 ? " +oo" : " +o", a);
 			free(a);
 		}
 	}
@@ -162,8 +149,7 @@ int chan::kick4(chanuser **MultHandle, int num)
 		}
 		if(j)
 		{
-			net.irc.send("KICK ", (const char *) name, a, " :", reason ? reason : (const char *) config.kickreason, NULL);
-			penalty += j*3 + 1;
+			net.irc.send("KICK %s %s :%s", (const char *) name, a, reason ? reason : (const char *) set.KICKREASON);
 			free(a);
 			sentKicks += j;
 		}
@@ -195,9 +181,8 @@ int chan::op(chanuser *p)
 	{
 		if(penalty < 10)
 		{
-			net.irc.send("MODE ", (const char *) name, " +o ", p->nick, NULL);
+			net.irc.send("MODE %s +o %s", (const char *) name, p->nick);
 			p->flags |= OP_SENT;
-			penalty += 4;
 			return 1;
 		}
 	}
@@ -213,7 +198,7 @@ int chan::deOp(chanuser *p)
 	{
 		if(penalty < 10)
 		{
-			net.irc.send("MODE ", name, " -o ", p->nick, NULL);
+			net.irc.send("MODE %s -o %s", name, p->nick);
 			p->flags |= DEOP_SENT;
 			penalty += 4;
 			return 1;
@@ -232,9 +217,8 @@ int chan::kick(chanuser *p, const char *reason)
 	{
 		if(penalty < 10)
 		{
-			if(reason) net.irc.send("KICK ", (const char *) name, " ", p->nick, " :", reason, NULL);
-			else net.irc.send("KICK ", (const char *) name, " ", p->nick, " :", (const char *) config.kickreason, NULL);
-			penalty += 4;
+			if(reason) net.irc.send("KICK %s %s :%s", (const char *) name, p->nick, reason);
+			else net.irc.send("KICK %s %s :%s", (const char *) name, p->nick, (const char *) set.KICKREASON);
 			p->flags |= KICK_SENT;
 			++sentKicks;
 			return 1;
@@ -249,17 +233,26 @@ int chan::invite(const char *nick)
 
 	if(!getUser(nick))
 	{
-		char *a = (char*) strchr(nick, '!');
+		char *a, *nick2;
+		mem_strcpy(nick2, nick);
+
+		a = strchr(nick2, '!');
 		if(a) *a = '\0';
 
-			::invite.wisePush("INVITE ", nick, " ", (const char *) name, NULL);
-		if(penalty < 5) if(::invite.flush(&net.irc)) penalty += 3;
+		::invite.wisePush("INVITE %s %s", nick2, (const char *) name);
+
+		if(penalty < 5)
+			::invite.flush(&net.irc);
+
+		if(nick2)
+			free(nick2);
+
 		return 1;
 	}
 	return 0;
 }
 
-int chan::applyShit(const protmodelist::entry *s, int force)
+int chan::applyBan(const protmodelist::entry *s, int force)
 {
 	int i = 0;
 
@@ -317,7 +310,7 @@ void chan::punishClones(const char *mask, bool isMyTurn)
 
 		modeQ[PRIO_LOW].add(NOW, "+b", mask);
 
-		enforceBan(mask, me, "too many clones");
+		enforceBan(mask, me, !set.CLONECHECK_KICKREASON.isDefault() ? set.CLONECHECK_KICKREASON : set.KICKREASON);
 
 		if(isMyTurn)
 			modeQ[PRIO_HIGH].flush(PRIO_HIGH);
@@ -325,6 +318,9 @@ void chan::punishClones(const char *mask, bool isMyTurn)
 	else
 	{
 		modeQ[PRIO_HIGH].add(NOW, "+b", mask);
+
+		enforceBan(mask, me, !set.CLONECHECK_KICKREASON.isDefault() ? set.CLONECHECK_KICKREASON : set.KICKREASON, false);
+
 		if(isMyTurn)
 			modeQ[PRIO_HIGH].flush(PRIO_HIGH);
 	}

@@ -76,6 +76,22 @@ class module
 
 struct HANDLE
 {
+	struct ADDR
+	{
+		struct entry
+		{
+			char ip[MAX_LEN];
+		};
+
+		ptrlist<entry> data;
+
+		ADDR();
+		void add(const char *);
+		entry *find(const char *);
+		bool remove(const char *);
+		bool match(const char *_ip);
+	};
+
 	char *name;
 	char *host[MAX_HOSTS];
 	char *hostBy[MAX_HOSTS];
@@ -90,5 +106,6 @@ struct HANDLE
 	comment *info;
 	offence *history;
 	char *createdBy;
+	ADDR *addr;
 };
 #endif
