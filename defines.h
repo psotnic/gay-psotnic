@@ -1,39 +1,6 @@
 #ifndef PSOTNIC_DEFINES_H
 #define PSOTNIC_DEFINES_H 1
 
-//channel flags
-#define FLAG_I					0x00000001
-#define FLAG_N					0x00000002
-#define FLAG_S					0x00000004
-#define FLAG_M					0x00000008
-#define FLAG_T					0x00000010
-#define FLAG_R					0x00000020
-#define FLAG_P					0x00000040
-#define FLAG_Q					0x00000080
-
-#define SENT_I					0x00000100
-#define SENT_N					0x00000200
-#define SENT_S					0x00000400
-#define SENT_M					0x00000800
-#define SENT_T					0x00001000
-#define SENT_R					0x00002000
-#define SENT_P					0x00004000
-#define SENT_Q					0x00008000
-
-#define SENT_MINUS_I			0x00010000
-#define SENT_MINUS_N			0x00020000
-#define SENT_MINUS_S			0x00040000
-#define SENT_MINUS_M			0x00080000
-#define SENT_MINUS_T			0x00100000
-#define SENT_MINUS_R			0x00200000
-#define SENT_MINUS_P			0x00400000
-#define SENT_MINUS_Q			0x00800000
-#define SENT_MINUS_L			0x01000000
-
-#define CRITICAL_LOCK			0x02000000
-
-#define CHFLAGS_SENT_ALL		0x01FFFF00
-
 //user flags
 #define HAS_A					0x00000001
 #define HAS_D					0x00000002
@@ -65,7 +32,7 @@
 //                              0x04000000
 #define HAS_P					0x08000000
 #define HAS_Z					0x10000000
-#define CHECK_SHIT				0x20000000
+#define CHECK_BAN				0x20000000
 //								0x40000000
 //								0x80000000
 
@@ -108,28 +75,26 @@
 #define STATUS_REGISTERED		0x00000002
 #define STATUS_SYNSENT			0x00000004
 #define STATUS_PARTY			0x00000008
-#define STATUS_BOT				0x00000010
+#define STATUS_BOT			0x00000010
 #define STATUS_SILENT			0x00000020
 #define STATUS_KLINED			0x00000040
 #define STATUS_TELNET			0x00000080
 #define STATUS_REDIR			0x00000100
-#define STATUS_FILE				0x00000200
-#define STATUS_SOCKS5			0x00000400
-#define STATUS_SOCKS5_CONNECTED	0x00000800
+#define STATUS_FILE			0x00000200
 #define STATUS_NOECHO			0x00001000
-#define STATUS_BNC				0x00002000
-#define STATUS_211				0x00004000
-#define STATUS_ROUTER			0x00008000
-#define STATUS_SSL				0x00010000
-#define STATUS_SSL_HANDSHAKING	0x00020000
-#define STATUS_SSL_WANT_CONNECT 0x00040000
-#define STATUS_SSL_WANT_ACCEPT  0x00080000
+#define STATUS_SSL			0x00010000
+#define STATUS_SSL_HANDSHAKING		0x00020000
+#define STATUS_SSL_WANT_CONNECT		0x00040000
+#define STATUS_SSL_WANT_ACCEPT		0x00080000
 #define	STATUS_ULCRYPT			0x80000000
-#define STATUS_NEED_WHOIS                  0x00100000
+#define STATUS_NEED_WHOIS               0x00100000
+#define STATUS_IRCCLIENT		0x20000000
 
+#define LISTEN_ALL			0x00000001
+#define LISTEN_USERS			0x00000002
+#define LISTEN_BOTS			0x00000004
 
 //chanlist flags
-#define SET_TOPIC				0x00000001
 #define JOIN_SENT				0x00000002
 #define PRIVATE_CHAN			0x00000004
 #define WHO_SENT				0x00000008
@@ -153,6 +118,8 @@
 #define MAX_ALTS				16
 #define MAX_MODULES				16
 #define MAX_ALIASES				32
+#define MAX_OWNERPASSES				8
+#define MAX_LISTENPORTS				8
 
 //#define RESOLV_TH				4
 #define MAX_OFFENCES				16
@@ -216,7 +183,7 @@
 #define S_OP					"26"
 #define S_BOP					"27"
 #define S_FOO					"28"
-#define S_NICK					"29"
+// 29
 #define S_PASSWD				"30"
 #define S_MKO					"31"
 #define S_MKN					"32"
@@ -229,34 +196,34 @@
 #define S_ADDR					"39"
 #define S_ULOK					"40"
 #define S_UNLINK				"41"
-#define S_JUMP					"42"
-#define S_JUMP6					"43"
+// 42
+// 43
 #define S_COMEON				"44"
 #define S_BIDLIMIT				"45"
 #define S_UNBANME				"46"
 #define S_RESET					"47"
-#define S_RDIE					"48"
-#define S_NAMES					"49"
-//#define S_PSOTGET				"50"
-#define S_RESTART				"51"
+// 48
+// 49
+// 50
+// 51
 #define S_RJOIN					"52"
 #define S_RPART					"53"
 #define S_JUMPS5				"54"
 #define S_PROXYHOST				"55"
 #define S_CHHANDLE				"56"
 #define S_ADDINFO				"57"
-#define S_ADDSHIT				"58"
-#define S_RMSHIT				"59"
+#define S_ADDBAN				"58"
+#define S_RMBAN 				"59"
 #define S_BOTCMD				"60"
 #define S_IUSEMODULES			"61"
 #define S_FORWARD				"62"
 #define S_LISTRPL				"63"
-#define S_STATUS				"64"
+// 64
 #define S_CHKHOST				"65"
 #define S_ADDSTICK				"66"
-#define S_PSOTUPDATE			"67"
-#define S_STOPUPDATE			"68"
-#define S_REQSHIT				"69"
+// 67
+// 68
+#define S_REQBAN				"69"
 #define S_DSET					"70"
 #define S_ADDINVITE				"71"
 #define S_RMINVITE				"72"
@@ -266,18 +233,16 @@
 #define S_RMREOP				"76"
 #define S_ADDOFFENCE				"77"
 #define S_ADDIDIOT				"78"
-#define S_CWHO					"79"
-#define S_SHITOBSERVED			"80"
-#define S_LASTUSED_PROTMODE		"81"
+// 79
+#define S_ADDADDR				"80"
+#define S_RMADDR				"81"
+#define S_TIMESTAMP				"82"
 
 #define S_NOPERM				strerror(EACCES)
-#define S_VERSION				"0.2.14" 
+#define S_VERSION				"0.1-pre (23-09-10)" 
+#define PATCHLEVEL				"000100"
 
-#define S_BOTNAME				"psotnic"
-#define S_COPYRIGHT				"Copyright (C) 2003-2007 Grzegorz Rusin <grusin@gmail.com>"
-
-#define DIE_REASON				"Taking the blue pill"
-#define DIE_REASON2				"told me to take the blue pill"
+#define S_BOTNAME				"gay-psotnic"
 
 #define	bk						printf("### %s(): %s:%d\n", __FUNCTION__, __FILE__, __LINE__)
 #define ircstrip(str)			(str[0] == ':') ? (str+1) : (str)

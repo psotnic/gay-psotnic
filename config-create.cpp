@@ -21,6 +21,8 @@
 #include "prots.h"
 #include "global-var.h"
 
+void expertMode();
+
 /*! Reads a string from a terminal and sets a pstrings value to it.
  * \overload
  * \param prompt The question used to ask for the value.
@@ -215,24 +217,24 @@ void readUserInput( const char *prompt, entHost &entity, bool allowEmpty )
  */
 void readUserInput( const char *prompt, entHub &entity )
 {
-	string buf;
+	char buf[MAX_LEN];
 	options::event *e;
-	entHost    host   = entHost( "tmp" );
+	entHost host = entHost( "tmp", entHost::ipv4 | entHost::ipv6 | entHost::domain | entHost::use_ssl);
 	entInt     port   = entInt( "tmp", 1, 65535, 0 );
 	entMD5Hash pass   = entMD5Hash( "tmp" );
-	entWord    handle = entWord( "tmp" );
+	entWord    handle = entWord( "tmp", 0, 15 );
 
 	printMessage( "%s: ", prompt );
 	do
 	{
-		readUserInput( "\tHost", host );
+		readUserInput( "\tHost address (can be prefixed by \"ssl:\", \"ipv4:\", \"ipv6:\")", host );
 		readUserInput( "\tPort", port );
 		readUserInput( "\tPassword", pass );
-		readUserInput( "\tHandle", handle );
+		readUserInput( "\tHandle", handle, true );
 
-		char buf[MAX_LEN];
-		snprintf( buf, MAX_LEN, "%s %s %s %s", (const char*)host.ip, port.getValue(), pass.getHash(), (const char*)handle.string );
+		snprintf( buf, MAX_LEN, "%s %s %s %s", (const char*)host.getValue(), port.getValue(), pass.getValue(), (const char*)handle.getValue() );
 		e = entity.setValue( entity.name, buf );
+
 		if( !e->ok )
 		{
 			printError( (const char*)e->reason );
@@ -295,18 +297,26 @@ void readUserInput( const char *prompt, entServer &entity )
 {
 	string buf;
 	options::event *e;
-	entHost host = entHost( "tmp" );
+	char tmp[MAX_LEN];
+
+	entHost host = entHost( "tmp", entHost::ipv4 | entHost::ipv6 | entHost::domain
+#ifdef HAVE_SSL
+| entHost::use_ssl
+#endif
+);
 	entInt  port = entInt( "tmp", 1, 65535, 0 );
-	entWord pass = entWord( "tmp" );
+	entWord pass = entWord( "tmp", 0, 256, "" );
 
 	printMessage( "%s: ", prompt );
 	do
 	{
-		readUserInput( "\tHost address", host );
+		readUserInput( "\tHost address (can be prefixed by \"ssl:\", \"ipv4:\", \"ipv6:\")", host );
 		readUserInput( "\tPort number", port );
-		readUserInput( "\tPassword", pass );
-		
-		e = entity.set( entity.name, (const char*)host.ip, port.getValue(), (const char*)pass.string );
+		readUserInput( "\tPassword", pass, true );
+
+		snprintf(tmp, MAX_LEN, "%s %s %s", (const char*)host.getValue(), port.getValue(), (const char*)pass.string);
+		e = entity.setValue(entity.name, tmp);
+
 		if( !e->ok )
 		{
 			printError( (const char*)e->reason );
@@ -327,7 +337,7 @@ void readUserInput( const char *prompt, entServer &entity )
  * \param entity The entity.
  * \author Stefan Valouch <stefanvalouch@googlemail.com>
  */
-void readUserInput( const char *prompt, entString &entity )
+void readUserInput( const char *prompt, entString &entity, bool allowEmpty )
 {
 	string buf;
 	options::event *e;
@@ -356,7 +366,11 @@ void readUserInput( const char *prompt, entString &entity )
 				entity.setValue(entity.name, entity.defaultString);
 				break;
 			}
-			continue;
+
+			else if(allowEmpty)
+				break;
+			else
+				continue;
 		}
 		e = entity.setValue(entity.name, buf.c_str());
 		if(e->ok)
@@ -369,6 +383,42 @@ void readUserInput( const char *prompt, entString &entity )
 		}
 	}
 	while( true );
+}
+
+/** missing.
+ *
+ * \author patrick <patrick@psotnic.com>
+ */
+
+void readUserInput(const char *prompt, entListener &entity)
+{
+  options::event *e;
+  char buf[MAX_LEN];
+  entHost host=entHost("tmp", entHost::ipv4 | entHost::ipv6 | entHost::use_ssl);
+  entInt port=entInt("tmp", 1, 65535, 0);
+  entWord options=entWord("tmp", 0, 15);
+
+  printMessage("%s: ", prompt);
+
+  do {
+    readUserInput("\tIP address (can be prefixed by \"ssl:\")", host);
+    readUserInput("\tPort number", port);
+
+    do {
+    readUserInput("\tusage (\"all\", \"users\", \"bots\")", options);
+    } while(strcmp(options, "all") && strcmp(options, "users") && strcmp(options, "bots"));
+
+    snprintf(buf, MAX_LEN, "%s %s %s", (const char*)host.getValue(), port.getValue(), (const char*)options.string);
+    e=entity.setValue(entity.name, buf);
+
+    if(!e->ok)
+      printError((const char*)e->reason);
+
+    else {
+      break;
+    }
+
+  } while(true);
 }
 
 /*! Asks a multiple choice question and returns the answer-id.
@@ -456,18 +506,34 @@ bool readUserYesNo( const char *prompt, bool defaultValue )
  * the unencrypted config file laying around waiting for encryption.
  * \author Stefan Valouch <stefanvalouch@googlemail.com>
  */
-void createInitialConfig()
+void createInitialConfig(bool expMode)
 {
+	int n;
+	options::event *e;
+
 	printMessage( "Bot now runs in config creation mode" );
 	printMessage( "The options are explained at http://psotnic.wiki.sourceforge.net/Config+File" );
+
+    if(expMode)
+    {
+	expertMode();
+    }
+
+    else
+    {
 	printMessage( "Mandatory options for all bot types:" );
-
-	readUserInput( "Which nick should the bot use?", config.nick );
-	readUserInput( "What should be used as the bots realname?", config.realname );
-	readUserInput( "Which characters should get appended to the nick if it is already taken?", config.nickappend );
-	readUserInput( "Nick to use when the normal nick is already taken:", config.altnick );
-
-	readUserInput( "Enter the bots IPv4 address, use 0.0.0.0 for any", config.myipv4 );
+	//readUserInput( "Which nick should the bot use?", config.nick );
+	readUserInput( "nick?", config.nick );
+	//readUserInput( "What is the bot's username?", config.ident );
+	readUserInput( "username?", config.ident );
+	//readUserInput( "What should be used as the bot's realname?", config.realname );
+	readUserInput( "realname?", config.realname );
+	//readUserInput( "Which characters should get appended to the nick if it is already taken?", config.nickappend );
+	//readUserInput( "Nick to use when the normal nick is already taken:", config.altnick );
+	readUserInput( "alternative nick?", config.altnick );
+        readUserInput( "Which IPv4 or IPv6 address should be used to connect to IRC (default: determined by OS)", config.vhost, true );
+	config.myipv4.setValue("myipv4", config.vhost);
+	readUserInput( "Which IPv4 address should be used to connect to other bots?", config.myipv4, true );
 
 	const char *choices[3] = {
 		"Main",
@@ -481,26 +547,40 @@ void createInitialConfig()
 		case 0:
 			printMessage( "Configuration for bot type: MAIN" );
 			config.bottype = BOT_MAIN;
-			readUserInput( "What port should the bot listen on for connections from owners and slaves?", config.listenport );
-#ifdef HAVE_SSL
-			readUserInput( "What port should the bot listen on for SSL encrypted connections from owners and slaves?", config.ssl_listenport );
-#endif
-			readUserInput( "Please enter a password for connecting to partyline.", config.ownerpass );
+
+			n=0;
+			do
+			{
+				readUserInput("What ports should the bot listen on?", config.listenport[n]);
+				n++;
+			} while(n < MAX_LISTENPORTS && readUserYesNo("Do you want to add more ports?", false));
+
+			n=0;
+			do
+			{
+				readUserInput("ownerpass?", config.ownerpass[n]);
+				n++;
+			} while(n < MAX_OWNERPASSES && readUserYesNo("Do you want to add more ownerpasses?", false));
+			
 			break;
 		case 1:
 			printMessage( "Configuration for bot type: SLAVE" );
 			config.bottype = BOT_SLAVE;
-			readUserInput( "What port should the bot listen on for connections from leafs?", config.listenport );
-#ifdef HAVE_SSL
-			readUserInput( "What port should the bot listen on for SSL encrypted connections from leafs?", config.ssl_listenport );
-#endif
+
+			n=0;
+			do
+                        {
+                                readUserInput("What ports should the bot listen on?", config.listenport[n]);
+                                n++;
+                        } while(n < MAX_LISTENPORTS && readUserYesNo("Do you want to add more ports?", false));
+
 			readUserInput( "Please enter the connection options for connecting to the main bot.", config.hub );
 			
 			break;
 		case 2:
 			printMessage( "Configuration for bot type: LEAF" );
 			config.bottype = BOT_LEAF;
-			readUserInput( "Connection options to connect to slave?", config.hub );
+			readUserInput( "Connection options to connect to hub?", config.hub );
 			break;
 		default:
 			printError( "ERROR: unknown bot type: " + bottype );
@@ -509,15 +589,14 @@ void createInitialConfig()
 	}
 
 	string buf;
-	options::event *e;
-	int n;
 
+	// XXX: move to expert mode? -- patrick
 	// we don't make a function for that entMult stuff, its easier this way!
 	if( config.bottype == BOT_LEAF )
 	{
 		if( readUserYesNo( "Do you want to add alternative hubs?", false ) )
 		{
-			printMessage( "Valid lines are {}" );
+			printMessage( "Valid lines are: host port" );
 			for( n = 0; n < MAX_ALTS; )
 			{
 				printPrompt( "\tAltHub %d: ", n );
@@ -545,29 +624,13 @@ void createInitialConfig()
 
 	if( readUserYesNo( "Do you want to add some servers?", true ) )
 	{
-		printMessage( "Valid lines are: \"1.2.3.4 6667\" or \"1.2.3.4 6667 password\"" );
-		for( n = 0; n < MAX_SERVERS; )
+		n=0;
+
+		do
 		{
-			printPrompt( "\tServer %d: ", n );
-			getline(cin, buf);
-			if(!cin.good())
-			{
-				cout << endl;
-				exit(1);
-			}
-			if( buf.size() < 1 )
-			{
-				break;
-			}
-			e = config.server[n].setValue( config.server[n].name, buf.c_str() );
-			if( !e->ok )
-			{
-				printError( (const char*)e->reason );
-				continue;
-			}
+			readUserInput("Adding server", config.server[n]);
 			n++;
-		}
-		printMessage( "Okay, added %d servers.", n );
+		} while(n < MAX_SERVERS && readUserYesNo("Do you want to add more servers?", false));
 	}
 
 	if( readUserYesNo( "Do you want to add some modules?", false ) )
@@ -596,53 +659,128 @@ void createInitialConfig()
 		printMessage( "Okay, added %d modules.", n );
 	}
 
-	if( readUserYesNo( "Do you want to set up the very basic and optional stuff?", false ) )
+/*	if( readUserYesNo( "Do you want to set up the optional stuff?", false ) )
 	{
 		printMessage( "Detailed configuration" );
-		readUserInput( "IPv4 or IPv6 address (default: determined by OS", config.vhost, true );
-		readUserInput( "What is the bots username?", config.ident );
 
 		config.handle.defaultString = config.nick.string;
-		readUserInput( "What is the bots partyline handle?", config.handle );
-		// vhost
-		// logfile TODO: implement {partially done in branch}
-		//readUserInput( "Path where psotnics logfiles should be stored to", config.logfile );
-		//readUserInput( "Loglevel for psotnics actions", config.loglevel );
+		readUserInput( "What is the bot's botnet handle?", config.handle );
+
+        // FIXME: not understandable for noobs.
+        //         myipv4 will be used as source ip for linking and dcc chat and everything else
+        //         but not IRC (-> vhost) and not for listen (ip is defined in listen line)
+                readUserInput( "Enter the bot's IPv4 address, use 0.0.0.0 for any", config.myipv4 );
+		readUserInput( "Enter the bot's IPv6 address, use :: for any", config.myipv6);
+
 		config.userlist_file.defaultString = config.nick.string + ".ul";
 		readUserInput( "Where should the bot place its userlist?", config.userlist_file );
 
 		readUserInput( "Which ctcp version do you want? 0 = none, 1 = psotnic, 2 = irssi, 3 = epic, 4 = lice, 5 = bitchx, 6 = dzony loker, 7 = luzik, 8 = mirc 6.14", config.ctcptype );
 
-		readUserInput( "Disallow forking?", config.dontfork );
 		readUserInput( "Keepnick?", config.keepnick );
-		readUserInput( "Kick reason used for most kicks", config.kickreason );
-		readUserInput( "Kick reason used when someone overrides the channel limit", config.limitreason );
-		readUserInput( "Kick reason for keepout setting", config.keepoutreason );
-		readUserInput( "Part reason", config.partreason );
-		readUserInput( "Quit reason", config.quitreason );
-		readUserInput( "Cycle reason", config.cyclereason );
-		// bnc
-		// bouncer
-		readUserInput( "Botnetword, has to be equal on all bots in the same botnet", config.botnetword );
-
-#ifdef HAVE_ADNS
-		readUserInput( "How many resolve threads should be used?", config.resolve_threads );
-		readUserInput( "Domain Time-To-Live?", config.domain_ttl );
-#endif
-
-		readUserInput( "Check shit on nick change?", config.check_shit_on_nick_change );
 	}
-	
+*/
+	if(readUserYesNo("Do you want to switch to expert mode and set further variables?", false))
+	{
+		expertMode();
+	}
+    }
+
+        // find out bottype again
+	bool listening=false;
+
+        for(int i=0; i<MAX_LISTENPORTS; i++)
+        {
+                if(config.listenport[i].isDefault())
+                        continue;
+
+                listening=true;
+		break;
+        }
+
+        if(listening)
+        {
+                if(config.hub.getPort())
+                        config.bottype = BOT_SLAVE;
+                else
+                        config.bottype = BOT_MAIN;
+        }
+
+        else
+                config.bottype = BOT_LEAF;
+
 	string defaultcfgfile = config.nick.getValue() + string(".cfg");
-	readUserInput( "Where should the config file be saved?", config.file, defaultcfgfile.c_str()); // TODO: use confdir as default path once make-install is merged
-	bool decryptedSave = readUserYesNo( "Should the config file be saved decrypted?", false );
-	e = config.save( decryptedSave );
+	readUserInput( "Where should the config file be saved?", config.file, defaultcfgfile.c_str());
+
+	e = config.save();
 	if (!e->ok)
 	{
 		printError( (const char*)e->reason );
 		exit(1);
 	}
 	printMessage( (const char*)e->reason );
+
+	if(config.bottype == BOT_MAIN && readUserYesNo("Do you want to create the userlist?", true)) // FIXME: alt, check if ul exists
+	{
+		HANDLE *h;
+		entWord handle, pass;
+		config.polish();
+		readUserInput("\tusername?", handle);
+		readUserInput("\tpassword?", pass);
+
+		userlist.addHandle("idiots", 0, 0, 0, 0, config.handle);
+		userlist.first->flags[MAX_CHANNELS] = HAS_D;
+
+		if(config.bottype == BOT_MAIN)
+			userlist.addHandle(config.handle, 0, B_FLAGS | HAS_H, 0, 0, config.handle);
+
+		h = userlist.addHandle((const char *) handle, 0, 0, 0, 0, (const char *) handle);
+
+		if(h)
+		{
+			userlist.changePass(h->name, (char *) (const char *) pass);
+			userlist.changeFlags(h->name, "tpx", "");
+			userlist.updated(false);
+			userlist.save(config.userlist_file);
+			printMessage("userlist saved as %s", (const char *) config.userlist_file);
+		}
+	}
+
 	exit(0);
 }
 
+/** missing.
+ * \author patrick <patrick@psotnic.com>
+ */
+
+void expertMode()
+{
+  string buf, var, val;
+  char buf2[MAX_LEN], arg[2][MAX_LEN];
+
+  printMessage("commands:");
+  printMessage("set [<variable> [<value>]]");
+  printMessage("exit");
+  printMessage("");
+  printMessage("set - shows all variables and their values");
+  printMessage("set nick - shows value of variables starting with \"nick\"");
+  printMessage("set nick gay-psotnic - sets variable \"nick\" to value \"gay-psotnic\"");
+
+  while(1) {
+    getline(cin, buf);
+
+    if(!cin.good()) {
+      cout << endl;
+      exit(1);
+    }
+
+    strncpy(buf2, buf.c_str(), MAX_LEN);
+    str2words(arg[0], buf2, 2, MAX_LEN);
+
+    if(!strcmp(arg[0], "set"))
+      config.parseUserSTDout(arg[1], srewind(buf2, 2), "cfg");
+
+    else if(!strcmp(arg[0], "exit"))
+      return;
+  }
+}

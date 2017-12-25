@@ -20,7 +20,6 @@
 
 #include "prots.h"
 #include "global-var.h"
-#include "topics.h"
 
 void client::checkMyHost(const char *to,  bool justConnected)
 {
@@ -32,7 +31,7 @@ void client::checkMyHost(const char *to,  bool justConnected)
 	if(ident[0] == '+' || ident[0] == '-' || ident[0] == '=')
 	{
 		int2units(buf, MAX_LEN, ircConnFailDelay, ut_time);
-		net.sendOwner(to, "[!] My connection is \002restricted\002, reconnecting in \002", buf, "\002", NULL);
+		net.sendOwner(to, "\002My connection is restricted, reconnecting in %s\002", buf);
 
 		if(justConnected)
 		{
@@ -43,12 +42,15 @@ void client::checkMyHost(const char *to,  bool justConnected)
 			if(ircConnFailDelay > 2*3600) ircConnFailDelay = 2*3600;
 		}
 		joinDelay = -1;
+		waitForMyHost = true;
 	}
 	else
 	{
 		if(userlist.wildFindHost(userlist.me(), mask) == -1)
 		{
-			joinDelay = -1;
+			//joinDelay = -1;
+			joinDelay = NOW + penalty;
+			waitForMyHost = true;
 
 			if(ident[0] == '^' || ident[0] == '~')
 			{
@@ -56,7 +58,7 @@ void client::checkMyHost(const char *to,  bool justConnected)
 				if(userlist.wildFindHost(userlist.me(), buf) != -1)
 				{
 					int2units(buf, MAX_LEN, ME.ircConnFailDelay, ut_time);
-					net.sendOwner(to, "[!] I lost my \002ident\002, reconnecting in \002", buf, "\002", NULL);
+					net.sendOwner(to, "\002I lost my ident, reconnecting in %s\002", buf);
 
 					if(justConnected)
 					{
@@ -69,7 +71,7 @@ void client::checkMyHost(const char *to,  bool justConnected)
 					return;
 				}
 			}
-			net.sendOwner(to, "[!] My host `\002", (const char *) mask, "\002' is not added, not joining channels", NULL);
+			net.sendOwner(to, "\002My host %s is not added\002", (const char *) mask);
 		}
 		else
 		{
@@ -81,97 +83,107 @@ void client::checkMyHost(const char *to,  bool justConnected)
 
 void client::sendStatus(const char *name)
 {
-	net.sendOwner(name, "\002-\002 about me\002:", NULL);
-	net.sendOwner(name, "Hi. I'm ", (const char *) config.handle, " and I'm running psotnic ", S_VERSION, NULL);
+	net.sendUser(name, "- about me:");
+	net.sendUser(name, "Hi. I'm %s and I'm running psotnic %s", (const char *) config.handle, S_VERSION);
 
 	char buf[MAX_LEN];
 	int min, max, sum;
 	double avg;
 
-	int2units(buf, MAX_LEN, int(NOW - ME.startedAt), ut_time);
-	net.sendOwner(name, "Up for\002:\002 ", buf, NULL);
-	if(net.irc.isReg())
-		net.sendOwner(name, "Connected to `\002", net.irc.origin, "\002' as \002`", (const char *) ME.mask, "\002'", NULL);
+	struct rlimit rlim;
 
-	net.sendOwner(name, "I have \002", itoa(net.bots()), "\002 bots and \002",
-			itoa(net.owners()), "\002 owners on-line", NULL);
+	int2units(buf, MAX_LEN, int(NOW - ME.startedAt), ut_time);
+	net.sendUser(name, "Up for: %s", buf);
+
+	if(net.irc.isReg())
+	{
+		net.sendUser(name, "Connected to %s as %s", net.irc.origin, (const char *) ME.mask);
+
+		if(!net.irc.lagcheck.sent.tv_usec)
+			net.sendUser(name, "Lag: not checked");
+		else if(net.irc.lagcheck.inProgress)
+			net.sendUser(name, "Lag: %d (waiting for reply)", net.irc.lagcheck.getLag()/1000);
+		else
+			net.sendUser(name, "Lag: %f (last checked %ds ago)", net.irc.lagcheck.lag/1000.0, NOW - net.irc.lagcheck.sent.tv_sec);
+	}
+
+	net.sendUser(name, "I have %s bots and %s owners on-line", itoa(net.bots()), itoa(net.owners()));
 
 	if(ME.channels)
 	{
-		net.sendOwner(name, "\002-\002 my channels\002:\002 ", NULL);
+		net.sendUser(name, "- my channels: ");
 		chan *ch = ME.first;
 		while(ch)
 		{
 			ch->users.stats(min, avg, max, sum);
 			snprintf(buf, MAX_LEN, "[hash: %d/%g/%d/%d]", min, avg, max, sum);
-			net.sendOwner(name, ch->name, " (", ch->getModes(), ", ", itoa(ch->chops()),
-					" ops, ", itoa(ch->users.entries()), " total) ", buf, NULL);
+			net.sendUser(name, ch->name, " (%s, %s ops, %s total) %s", ch->getModes(), itoa(ch->chops()),
+					itoa(ch->users.entries()), buf);
 			ch = ch->next;
 		}
 	}
-#ifdef HAVE_ADNS_FIXME
-	//TODO: fix statistics
-	net.sendOwner(name, "Resolving threads: \002", itoa(resolver.n), "\002", NULL);
 
-	if(resolver.n)
-	{
-		resolver.lock_data();
-		resolver.todo->stats(min, avg, max, sum);
-		snprintf(buf, MAX_LEN, "\002-\002 resolver::todo::stats (min/avg/max/total): %d/%g/%d/%d", min, avg, max, sum);
-		net.sendOwner(name, buf, NULL);
-
-		resolver.resolving->stats(min, avg, max, sum);
-		snprintf(buf, MAX_LEN, "\002-\002 resolver::resolving::stats (min/avg/max/total): %d/%g/%d/%d", min, avg, max, sum);
-		net.sendOwner(name, buf, NULL);
-
-		resolver.cache->stats(min, avg, max, sum);
-		snprintf(buf, MAX_LEN, "\002-\002 resolver::cache::stats (min/avg/max/total): %d/%g/%d/%d", min, avg, max, sum);
-		net.sendOwner(name, buf, NULL);
-		resolver.unlock_data();
-	}
-#else
-	net.sendOwner(name, "Resolving threads: not supported", NULL);
-#endif
-	net.sendOwner(name, "I'm configured as follows:", NULL);
+	net.sendUser(name, "I'm configured as follows:");
 #ifdef HAVE_ANTIPTRACE
-	net.sendOwner(name, "Antiptrace:               Enabled", NULL);
+	net.sendUser(name, "Antiptrace:               Enabled");
 #else
-	net.sendOwner(name, "Antiptrace:               Disabled", NULL);
+	net.sendUser(name, "Antiptrace:               Disabled");
 #endif
 #ifdef HAVE_IRC_BACKTRACE
-	net.sendOwner(name, "IRC Backtrace:            Enabeled", NULL);
+	net.sendUser(name, "IRC Backtrace:            Enabled");
 #else
-	net.sendOwner(name, "IRC Backtrace:            Disabled", NULL);
+	net.sendUser(name, "IRC Backtrace:            Disabled");
 #endif
 #ifdef HAVE_SSL
-	net.sendOwner(name, "SSL support:              Enabled", NULL); //TODO: add version string
+	net.sendUser(name, "SSL support:              Enabled"); //TODO: add version string
 #else
-	net.sendOwner(name, "SSL support:              Disabled", NULL);
+	net.sendUser(name, "SSL support:              Disabled");
 #endif
 #ifdef HAVE_IPV6
-	net.sendOwner(name, "IPv6 support:             Enabled", NULL);
+	net.sendUser(name, "IPv6 support:             Enabled");
 #else
-	net.sendOwner(name, "IPv6 support:             Disabled", NULL);
+	net.sendUser(name, "IPv6 support:             Disabled");
 #endif
-#ifdef HAVE_ANDS
-	net.sendOwner(name, "Asynchronus DNS Resolver: Enabled", NULL);
+#ifdef HAVE_ADNS
+	net.sendUser(name, "Asynchronus DNS Resolver: Enabled");
 #else
-	net.sendOwner(name, "Asynchronus DNS Resolver: Disabled", NULL);
+	net.sendUser(name, "Asynchronus DNS Resolver: Disabled");
 #endif
 #ifdef HAVE_ADNS_PTHREAD
-	net.sendOwner(name, "Resolving Threads:        Enabled, using ", itoa(config.resolve_threads), " threads", NULL);
+	net.sendUser(name, "Resolving Threads:        Enabled, using %d threads", (int) config.resolve_threads);
 #else
-	net.sendOwner(name, "Resolving Threads:        Disabled", NULL);
+	net.sendUser(name, "Resolving Threads:        Disabled");
 #endif
 #ifdef HAVE_ADNS_FIREDNS
-	net.sendOwner(name, "FireDNS Resolver:         Enabled", NULL);
+	net.sendUser(name, "FireDNS Resolver:         Enabled");
 #else
-	net.sendOwner(name, "FireDNS Resolver:         Disabled", NULL);
+	net.sendUser(name, "FireDNS Resolver:         Disabled");
 #endif
 #ifdef HAVE_LITTLE_ENDIAN
-	net.sendOwner(name, "Endianness:               Little", NULL);
+	net.sendUser(name, "Endianness:               Little");
 #else
-	net.sendOwner(name, "Endianness:               Big", NULL);
+	net.sendUser(name, "Endianness:               Big");
+#endif
+#ifdef HAVE_DEBUG
+	net.sendUser(name, "Debug Mode:               Enabled");
+#else
+	net.sendUser(name, "Debug Mode:               Disabled");
+#endif
+	if(getrlimit(RLIMIT_CORE, &rlim) == 0)
+	{
+		if(rlim.rlim_cur == RLIM_INFINITY)
+			net.sendUser(name, "Core Limit:               unlimited");
+		else
+			net.sendUser(name, "Core Limit:               %ld (max: %ld)", rlim.rlim_cur, rlim.rlim_max);
+	}
+
+	else
+		net.sendUser(name, "Core Limit:               %s", strerror(errno));
+
+#ifdef HAVE_MODULES
+	net.sendUser(name, "Module Support:               Enabled");
+#else
+	net.sendUser(name, "Module Support:               Disabled");
 #endif
 }
 
@@ -227,30 +239,17 @@ void client::newHostNotify()
 			return;
 		}
 
-		int i;
-
 		if(config.bottype == BOT_MAIN)
 		{
 			userlist.addHost(userlist.first->next, mask, NULL, 0, MAX_HOSTS-1);
-			net.send(HAS_B, S_PROXYHOST, " ", (const char *) config.handle, " ", (const char *) mask, NULL);
-			++userlist.SN;
+			net.send(HAS_B, "%s %s %s", S_PROXYHOST, (const char *) config.handle, (const char *) mask);
+			userlist.updated(false);
 			hostNotify = 0;
 		}
+
 		else
 		{
-			for(i=0; i<net.max_conns; ++i)
-			{
-				if(net.conn[i].isMain() && net.conn[i].fd)
-				{
-					net.conn[i].send(S_PROXYHOST, " ", (const char *) config.handle, " ", (const char *) mask, NULL);
-					hostNotify = 0;
-					break;
-				}
-			}
-		}
-		if(net.hub.fd && net.hub.isMain())
-		{
-			net.hub.send(S_PROXYHOST, " ", (const char *) config.handle, " ", (const char *) mask, NULL);
+			net.sendHub("%s %s %s", S_PROXYHOST, (const char *) config.handle, (const char *) mask);
 			hostNotify = 0;
 		}
 	}
@@ -276,48 +275,14 @@ void client::restart()
 	exit(1);
 }
 
-int client::jumps5(const char *proxyhost, int proxyport, const char *ircserver, int ircport, const char *owner)
+int client::jump(int number)
 {
-	char buf[MAX_LEN];
-	if(!ircport) ircport = 6667;
-
-	if(!inet::gethostbyname(proxyhost, buf, AF_INET))
-	{
-		net.sendOwner(owner, "[-] Cannot resolve ", proxyhost, ": ", hstrerror(h_errno), NULL);
-		memset(&socks5, 0, sizeof(socks5));
-		return 0;
-	}
-	socks5.setup(buf, proxyport, ircserver, ircport);
-
-	net.irc.send("QUIT :changing servers", NULL);
-	net.irc.close("changing servers");
-	nextReconnect = 0;
-	return ME.connectToIRC();
-}
-
-int client::jump(const char *host, const char *port, const char *owner, int protocol)
-{
-	entServer s("server",
-#ifdef HAVE_IPV6
-	new entHost("host", (protocol == AF_INET ? entHost::ipv4 : protocol == AF_INET6 ? entHost::ipv6 : 0) | entHost::domain),
-#else
-	new entHost("host", (protocol == AF_INET ? entHost::ipv4 : 0) | entHost::domain),
-#endif
-	new entInt("port", 1, 65535, 0), new entWord("pass", 0, 256));
-
-	options::event *e = s.set(host, (port && *port) ? port : "6667");
-	if(!e || !e->ok)
-	{
-		net.sendOwner(owner, e->reason, NULL);
-		return 0;
-	}
-
-	net.irc.send("QUIT :changing servers", NULL);
-	net.irc.close("changing servers");
-
-	net.send(HAS_N, "[*] Jumping to ", (const char *) s.getHost().connectionString, " port ", itoa(s.getPort()), NULL);
-        nextReconnect = 0;
-	return ME.connectToIRC(&s);
+    net.send(HAS_N, "Jumping to %s port %d", (const char *) config.server[number].getHost().connectionString, (int) config.server[number].getPort());
+    net.irc.send("QUIT :changing servers");
+    net.irc.close("changing servers");
+    config.currentServer = NULL;
+    connectToIRC(&config.server[number]);
+    return 0;
 }
 
 void client::inviteRaw(const char *str)
@@ -337,13 +302,14 @@ void client::inviteRaw(const char *str)
 void client::registerWithNewNick(char *nick)
 {
 	nickCreator(nick);
-	net.irc.send("NICK ", nick, NULL);
+	net.irc.send("NICK %s", nick);
 }
 
 void client::rejoin(const char *name, int t)
 {
 	int i = userlist.findChannel(name);
-	if(i != -1 && userlist.isRjoined(i) && joinDelay != -1)
+
+	if(i != -1 && userlist.isRjoined(i))
 	{
 		userlist.chanlist[i].nextjoin = NOW + t;
 		userlist.chanlist[i].status &= ~(JOIN_SENT | WHO_SENT);
@@ -355,7 +321,7 @@ void client::rejoin(const char *name, int t)
 void client::rejoinCheck()
 {
 	int i;
-	if(!(net.irc.status & STATUS_REGISTERED && joinDelay != -1))
+	if(!(net.irc.status & STATUS_REGISTERED))
 		return;
 
 	for(i=0; i<MAX_CHANNELS && penalty < 10; ++i)
@@ -366,10 +332,9 @@ void client::rejoinCheck()
 		{
 			if(!ME.findNotSyncedChannel(userlist.chanlist[i].name))
 			{
-				net.irc.send("JOIN ", (const char *) userlist.chanlist[i].name, " ", (const char *) userlist.chanlist[i].pass, NULL);
+				net.irc.send("JOIN %s %s", (const char *) userlist.chanlist[i].name, (const char *) userlist.chanlist[i].pass);
 				userlist.chanlist[i].status |= JOIN_SENT;
 				userlist.chanlist[i].status &= ~WHO_SENT;
-				penalty += 2;
 			}
 		}
 	}
@@ -400,8 +365,7 @@ void client::joinAllChannels()
 
 			if(buf.len + n > 500)
 			{
-				net.irc.send(buf.data, NULL);
-				penalty += 2;
+				net.irc.send("%s", buf.data);
 				buf.clean();
 				buf.push("JOIN ");
 				j = 0;
@@ -421,8 +385,7 @@ void client::joinAllChannels()
 		}
 	}
 	if(j)
-		net.irc.send(buf.data, NULL);
-	penalty += 2;
+		net.irc.send("%s", buf.data);
 	buf.clean();
 
 	// FIXME: WHO flood
@@ -442,8 +405,7 @@ void client::joinAllChannels()
 
 			if(j == ME.server.isupport.max_who_targets)
 			{
-				net.irc.send(buf.data, NULL);
-				penalty += j + 1;
+				net.irc.send("%s", buf.data);
 				buf.clean();
 				buf.push("WHO ");
 				j = 0;
@@ -451,13 +413,12 @@ void client::joinAllChannels()
 		}
 	}
 
-	if(j) net.irc.send(buf.data, NULL);
-	penalty += j + 1;
+	if(j) net.irc.send("%s", buf.data);
 }
 
 void client::gotNickChange(const char *from, const char *to)
 {
-	char *a = (char *) strchr(from, '!');
+	char *a = strchr((char *)from, '!');
 	char *fromnick;
 	chan *p = first;
 
@@ -479,8 +440,8 @@ void client::gotNickChange(const char *from, const char *to)
 		ME.mask += "@";
 		ME.mask += ME.host;
 
-		net.propagate(NULL, S_CHNICK, " ", (const char *) ME.nick, NULL);
-		net.send(HAS_N, "[*] I am known as ", to, NULL);
+		net.propagate(NULL, "%s %s", S_CHNICK, (const char *) ME.nick);
+		net.send(HAS_N, "I am known as %s", to);
 		hostNotify = 1;
 	}
 
@@ -522,45 +483,78 @@ void client::recheckFlags(const char *channel)
 
 int client::connectToHUB()
 {
-	int fd, i;
-
-	if(config.hub.failures < 3)
+	int fd, i, proto;
+#ifdef HAVE_ADNS
+	if(!(config.currentHub && config.currentHub->getHost().resolve_pending))
 	{
-		config.currentHub = &config.hub;
-		DEBUG(printf(">>> hub = hub\n"));
-	}
-	else
-	{
-		for(i=0; i<MAX_ALTS; ++i)
+#endif
+		if(config.hub.failures < 3)
 		{
-			if(!config.alt[i].isDefault())
+			config.currentHub = &config.hub;
+			DEBUG(printf(">>> hub = hub\n"));
+		}
+		else
+		{
+			for(i=0; i<MAX_ALTS; ++i)
 			{
-				if(!config.currentHub)
+				if(!config.alt[i].isDefault())
 				{
-					config.currentHub = &config.alt[i];
-					DEBUG(printf(">>> hub = alt[%d]\n", i));
-				}
-				else if(config.currentHub->failures > config.alt[i].failures)
-				{
-					config.currentHub = &config.alt[i];
-					DEBUG(printf(">>> hub = alt[%d]\n", i));
+					if(!config.currentHub)
+					{
+						config.currentHub = &config.alt[i];
+						DEBUG(printf(">>> hub = alt[%d]\n", i));
+					}
+					else if(config.currentHub->failures > config.alt[i].failures)
+					{
+						config.currentHub = &config.alt[i];
+						DEBUG(printf(">>> hub = alt[%d]\n", i));
+					}
 				}
 			}
 		}
+
+		if(!config.currentHub) config.currentHub = &config.hub;
+#ifdef HAVE_ADNS
 	}
 
-	if(!config.currentHub) config.currentHub = &config.hub;
+	i = config.currentHub->getHost().updateDnsEntry();
 
-	DEBUG(printf("[*] Connecting to HUB: %s port %d\n",
-		  (const char *) config.currentHub->getHost().connectionString, (int) config.currentHub->getPort()));
+	switch(i)
+	{
+		// resolve error or still resolving
+		case -1 : ++config.currentHub->failures;
+		case  0 : return -1;
+	}
+#endif
+        if(config.currentHub->getHost().isIpv4())
+                proto=4;
+        else if(config.currentHub->getHost().isIpv6())
+                proto=6;
+	else
+	{
+            if(*config.currentHub->getHost().ip6)
+                proto=6;
+            else
+                proto=4;
+	}
 
-	fd = doConnect((const char *) config.currentHub->getHost().ip, config.currentHub->getPort(), config.myipv4, -1);
+	DEBUG(printf("[*] Connecting to HUB: %s (%s) port %d\n",
+		  (const char *) config.currentHub->getHost().connectionString, 
+		  proto==6 ? (const char *) config.currentHub->getHost().ip6 : (const char *) config.currentHub->getHost().ip4,
+		  (int) config.currentHub->getPort()));
+
+#ifdef HAVE_IPV6
+	if(proto == 6)
+		fd = doConnect6((const char *) config.currentHub->getHost().ip6, config.currentHub->getPort(), config.myipv6, -1);
+	else
+#endif
+		fd = doConnect((const char *) config.currentHub->getHost().ip4, config.currentHub->getPort(), config.myipv4, -1);
 
 	if(fd > 0)
 	{
 		net.hub.fd = fd;
 		net.hub.status = STATUS_SYNSENT;
-		net.hub.killTime = set.AUTH_TIME + NOW;
+		net.hub.killTime = set.AUTH_TIMEOUT + NOW;
 
 #ifdef HAVE_SSL
 		if(config.currentHub->getHost().isSSL())
@@ -580,55 +574,75 @@ int client::connectToIRC(entServer *s)
 {
 	int n;
 	int opt = 0;
+	int proto = 0;
 
 	net.irc.status = 0;
-	if(socks5.use())
+#ifdef HAVE_ADNS
+	if(!(config.currentServer && config.currentServer->getHost().resolve_pending))
+#else
+	if(1)
+#endif
 	{
-		n = socks5.connect();
-		opt = STATUS_SOCKS5;
+		if(s)
+			config.currentServer = s;
+
+		else
+			config.currentServer = getRandomServer();
+
+		if(!config.currentServer)
+			return 0;
 	}
-	else if(!config.bnc.isDefault())
-	{
-		DEBUG(printf("[D] Using bnc to connect: %s %d (%s)\n",
-			(const char *) config.bnc.getHost(),
-			(int) config.bnc.getPort(),
-			(const char *) config.bnc.getValue()));
-		n = doConnect((const char *) config.bnc.getHost().ip, config.bnc.getPort(), 0, -1);
-		opt = STATUS_BNC;
-	}
-	else if(!config.router.isDefault())
-	{
-		n = doConnect((const char *) config.router.getHost().ip, config.router.getPort(), 0, -1);
-		opt = STATUS_ROUTER;
-	}
+
+#ifdef HAVE_ADNS
+        n = config.currentServer->getHost().updateDnsEntry();
+
+        switch(n)
+        {
+                // resolve error or still resolving
+                case -1 :
+                case  0 : return -1;
+        }
+#endif
+
+	// if server name is an ipv4 or ipv6 address use the protocol of that address
+	if(config.currentServer->getHost().isIpv4())
+		proto=4;
+	else if(config.currentServer->getHost().isIpv6())
+		proto=6;
 	else
 	{
-		if(!s)
+		// we resolved some hostname
+		if(*config.currentServer->getHost().ip4  && *config.currentServer->getHost().ip6)
 		{
-			s = getRandomServer();
-			if(!s)
-				return 0;
-		}
-
-		//hack oidentd
-		if(!config.oidentd_cfg.isDefault())
-		{
-			FILE *f = fopen(config.oidentd_cfg, "w");
-			if(f)
-			{
-				fprintf(f, "global { reply \"%s\"}\n", (const char *) config.ident);
-				fclose(f);
-			}
+			// hostname has an ipv4 and ipv6 address
+			// priority: protocol of vhost (if the variable is set)
+			if(!config.vhost.isDefault() && (proto=isValidIp(config.vhost)) !=0)
+				;
 			else
-				net.send(HAS_N, "[!] Cannot create ", (const char *) config.oidentd_cfg, ": ", strerror(errno), NULL);
+				// vhost is not set, prefer ipv6
+				proto=6;
 		}
-#ifdef HAVE_IPV6
-		if(s->getHost().isIpv6())
-			n = doConnect6(s->getHost().ip, s->getPort(), config.vhost, -1);
 		else
-#endif
-			n = doConnect((const char *) s->getHost().ip, s->getPort(), config.vhost, -1);
+		{
+			// use what it has
+			if(*config.currentServer->getHost().ip6)
+				proto=6;
+			else
+				proto=4;
+		}
 	}
+
+        DEBUG(printf("[*] Connecting to IRC server: %s (%s) port %d with vhost %s\n",
+                  (const char *) config.currentServer->getHost().connectionString,
+                  proto==6 ? (const char *) config.currentServer->getHost().ip6 : (const char *) config.currentServer->getHost().ip4,
+                  (int) config.currentServer->getPort(), (const char*) config.vhost));
+
+#ifdef HAVE_IPV6
+	if(proto == 6)
+		n = doConnect6(config.currentServer->getHost().ip6, config.currentServer->getPort(), config.vhost, -1);
+	else
+#endif
+		n = doConnect((const char *) config.currentServer->getHost().ip4, config.currentServer->getPort(), config.vhost, -1);
 
 	if(n > 0)
 	{
@@ -636,18 +650,19 @@ int client::connectToIRC(entServer *s)
 		memset(&net.irc, 0, sizeof(inetconn));
 		net.irc.fd = n;
 		net.irc.status |= STATUS_SYNSENT | opt;
-		net.irc.killTime = set.AUTH_TIME + NOW;
+		net.irc.killTime = set.AUTH_TIMEOUT + NOW;
 		net.irc.pass = NULL;
 
-		if(s)
+		if(config.currentServer)
 		{
-		    pass = (const char *) s->getPass();
+		    pass = (const char *) config.currentServer->getPass();
+
 		    if(pass && *pass)
 			net.irc.pass = (char *) pass;
 		}
 
 #ifdef HAVE_SSL
-		if(s->isSSL())
+		if(config.currentServer->isSSL())
 		{
 			net.irc.enableSSL();
 			net.irc.status |= STATUS_SSL_WANT_CONNECT | STATUS_SSL_HANDSHAKING;
@@ -655,9 +670,10 @@ int client::connectToIRC(entServer *s)
 #endif
 		HOOK(connecting, connecting());
 		stopParsing=false;
-		return n;
 	}
-	return 0;
+
+	//config.currentServer=NULL;
+	return n > 0 ? n : 0;
 }
 
 void client::checkQueue()
@@ -669,24 +685,24 @@ void client::checkQueue()
 	protmodelist::expireAll();
 
 	/*
-	 *	-1 - waiting for my host
 	 *   0 - normal rejoin mode
 	 *  >0 - burst join
 	 */
 
-	if(joinDelay == -1)
+	if(waitForMyHost)
 	{
 		if(userlist.wildFindHost(userlist.me(), ME.mask) != -1)
 		{
 			joinDelay = NOW + set.QUARANTINE_TIME;
-			DEBUG(net.send(HAS_N, "[D] kk, thx", NULL));
+			waitForMyHost = false;
+			DEBUG(net.send(HAS_N, "[D] kk, thx"));
 		}
 	}
-	else if(!joinDelay)
+	if(!joinDelay)
 	{
 		rejoinCheck();
 	}
-	else if(joinDelay <= NOW)
+	if(joinDelay <= NOW)
 	{
 		joinDelay = 0;
 		joinAllChannels();
@@ -699,13 +715,7 @@ void client::checkQueue()
 #ifdef HAVE_ADNS
 			ch->updateDnsEntries();
 #endif
-			ch->recheckShits();
-			ch->checkList();
-
-			if(ch->chset->KEEPOUT && (ch->me->flags & IS_OP))
-				ch->checkKeepout();
-
-			ch->checkProtectedChmodes();
+			ch->recheckBans();
 
 			if(!(ch->me->flags & IS_OP))
 			{
@@ -730,9 +740,9 @@ void client::checkQueue()
 				*/
 				if(!ch->flushKickQueue())
 				{
-					ch->updateLimit();
 					ch->modeQ[PRIO_HIGH].flush(PRIO_HIGH);
 					ch->modeQ[PRIO_LOW].flush(PRIO_LOW);
+					ch->updateLimit();
 				}
 			}
 
@@ -744,6 +754,26 @@ void client::checkQueue()
 			}
 			ch->wasop->expire();
 		}
+
+		if(!ch->fullSynced && ch->synlevel >= 2 && ch->list[BAN].received
+			&& (ch->list[INVITE].received || !ME.server.isupport.find("INVEX"))
+			&& (ch->list[EXEMPT].received || !ME.server.isupport.find("EXCEPTS"))
+			&& (ch->list[REOP].received || chan::getTypeOfChanMode('R') != 'A'))
+		{
+			// full sync'd
+
+			if(ch->me->flags & IS_OP)
+				ch->justSyncedAndOped();
+
+                        HOOK(justSynced, justSynced(ch));
+                        stopParsing=false;
+
+			ch->fullSynced=true;
+		}
+
+		if(ch->fullSynced && ch->me->flags & IS_OP)
+			ch->listFullCheck();
+
 		ch = ch->next;
 	}
 
@@ -786,27 +816,6 @@ void client::checkQueue()
 				}
 			}
 			ch->modeQ[PRIO_LOW].flush(PRIO_LOW);
-
-			if(ch->synced() >= 3 && ch->me->flags & IS_OP)
-			{
-				int n = ch->opedBots.entries() + ch->botsToOp.entries();
-
-				if(!(ch->flags & (FLAG_I | SENT_I)) && n < set.CRITICAL_BOTS &&	ch->chset->LOCKDOWN)
-				{
-					ch->flags |= CRITICAL_LOCK;
-
-					if(ch->myTurn(ch->chset->GUARDIAN_BOTS))
-						ch->modeQ[PRIO_HIGH].add(NOW, "+i");
-				}
-				else if(ch->flags & CRITICAL_LOCK && n >= set.CRITICAL_BOTS)
-				{
-					if(ch->myTurn(ch->chset->GUARDIAN_BOTS))
-						ch->modeQ[PRIO_HIGH].add(NOW, "-i");
-					else
-						ch->modeQ[PRIO_HIGH].add(NOW+ch->myPos()*set.BACKUP_MODE_DELAY, "-i");
-
-				}
-			}
 		}
 		ch = ch->next;
 	}
@@ -849,33 +858,19 @@ void client::checkQueue()
 		{
 			switch(level)
 			{
-				case 1: net.irc.send("MODE ", buf.data, NULL); break;
-				case 3: net.irc.send("MODE ", buf.data, " b", NULL); break;
-				case 5: net.irc.send("MODE ", buf.data, " I", NULL); break;
-				case 7: net.irc.send("MODE ", buf.data, " e", NULL); break;
-				case 9: net.irc.send("MODE ", buf.data, " R", NULL); break;
+				case 1: net.irc.send("MODE %s", buf.data); break;
+				case 3: net.irc.send("MODE %s b", buf.data); break;
+				case 5: net.irc.send("MODE %s I", buf.data); break;
+				case 7: net.irc.send("MODE %s e", buf.data); break;
+				case 9: net.irc.send("MODE %s R", buf.data); break;
 				default: break;
 			}
-			penalty += i + 1;
+
 			return;
 		}
 	}
 
-	/* realy nothing to do ;p */
-	ch = first;
-	while(ch && !penalty)
-	{
-		if(ch->synced() && ch->me->flags & IS_OP &&
-			userlist.chanlist[ch->channum].status & SET_TOPIC)
-		{
-			srand();
-			net.irc.send("TOPIC ", (const char *) ch->name, " :[\002Psotnic\002]: ", topics[rand() % count(topics)], NULL);
-			userlist.chanlist[ch->channum].status &= ~SET_TOPIC;
-			penalty++;
-			return;
-		}
-		ch = ch->next;
-	}
+	queue->flush(&net.irc);
 }
 
 void client::gotUserQuit(const char *mask, const char *reason)
@@ -884,7 +879,7 @@ void client::gotUserQuit(const char *mask, const char *reason)
 	chan *ch = first;
 	int netsplit = reason && wasoptest::checkSplit(reason);
 
-	a = (char *) strchr(mask, '!');
+	a = strchr((char *)mask, '!');
 	if(a) mem_strncpy(nick, mask, abs(a - mask) + 1);
 	else mem_strcpy(nick, mask);
 
@@ -904,7 +899,7 @@ void client::gotUserQuit(const char *mask, const char *reason)
 
 	if(config.keepnick && !netsplit && !strcasecmp(nick, config.nick))
 	{
-		net.irc.send("NICK ", (const char *) config.nick, NULL);
+		net.irc.send("NICK %s", (const char *) config.nick);
 		ME.nextNickCheck = 0;
 	}
 
@@ -1023,7 +1018,7 @@ chan *client::createNewChannel(const char *name)
 			delete userlist.chanlist[n].allowedOps;
 			userlist.chanlist[n].allowedOps = NULL;
 		}
-		current->key = userlist.chanlist[n].pass;
+		//current->key = userlist.chanlist[n].pass;
 
 		++channels;
 		return current;
@@ -1040,7 +1035,9 @@ client::client()
 	nextReconnect = nextRecheck = nextNickCheck = 0;
 	nextConnToIrc = nextConnToHub = startedAt = NOW;
 	channels = joinDelay = hostNotify = 0;
+	waitForMyHost = false;
 	ircConnFailDelay = 15;
+	queue=new fifo(0, 3);
 }
 
 /* Destruction derby */
@@ -1089,6 +1086,7 @@ void client::reset()
 	overrider = uid = ircip = nick = ident = host = mask = "";
 	nextRecheck = nextNickCheck = 0;
 	channels = joinDelay = hostNotify = 0;
+	waitForMyHost = false;
 	ircConnFailDelay = 15;
 
 	for(int i=0; i<MAX_CHANNELS; ++i)
@@ -1103,6 +1101,7 @@ void client::reset()
 	}
 
 	server.reset();
+	queue->data.clear();
 }
 
 /** Sends a privmsg.
@@ -1111,21 +1110,14 @@ void client::reset()
 
 void client::privmsg(const char *target, const char *lst, ...)
 {
-        va_list ap;
-	char *a;
-        int len;
+        va_list list;
+        char buffer[MAX_LEN];
 
-	a = push(NULL, "PRIVMSG ", target, " :", NULL);
+        va_start(list, lst);
+        vsnprintf(buffer, MAX_LEN, lst, list);
+        va_end(list);
 
-        va_start(ap, lst);
-        len = va_getlen(ap, lst);
-        va_end(ap);
-        va_start(ap, lst);
-        a = va_push(a, ap, lst, len + 1);
-        va_end(ap);
-
-	net.irc.send(a, NULL);
-        free(a);
+        queue->push("PRIVMSG %s :%s", target, buffer);
 }
 
 /** Sends a notice.
@@ -1134,19 +1126,18 @@ void client::privmsg(const char *target, const char *lst, ...)
 
 void client::notice(const char *target, const char *lst, ...)
 {
-        va_list ap;
-        char *a;
-        int len;
+        va_list list;
+        char buffer[MAX_LEN];
 
-        a = push(NULL, "NOTICE ", target, " :", NULL);
+        va_start(list, lst);
+        vsnprintf(buffer, MAX_LEN, lst, list);
+        va_end(list);
 
-        va_start(ap, lst);
-        len = va_getlen(ap, lst);
-        va_end(ap);
-        va_start(ap, lst);
-        a = va_push(a, ap, lst, len + 1);
-        va_end(ap);
+	queue->push("NOTICE %s :%s", target, buffer);
+}
 
-        net.irc.send(a, NULL);
-        free(a);
+void client::quit(const char *reason)
+{
+    if(net.irc.fd > 0)
+        net.irc.send("QUIT :%s", reason ? reason : (const char *) set.QUITREASON);
 }

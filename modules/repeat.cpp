@@ -1,11 +1,10 @@
 /* repeat module for psotnic
 
    Detects users who repeat or flood and kicks/bans them.
-   It has also a lagcheck.
 */
 
-#include "../prots.h"
-#include "../global-var.h"
+#include <prots.h>
+#include <global-var.h>
 
 // configuration
 
@@ -56,9 +55,6 @@ const char *rp_exceptions[]={
 // disable protections if lag is bigger than this value (in seconds)
 #define MAX_LAG 10
 
-// delay between lag checks (in seconds)
-#define LAGCHECK_DELAY 60
-
 
 // repeaters/flooders will be banned directly (not kicked first)
 
@@ -70,16 +66,6 @@ const char *rp_exceptions[]={
 // end of configuration
 
 module *m;
-
-#ifdef USE_LAGCHECK
-struct _lagcheck
-{
-    int next;         // time when to perform next check
-    int sent;         // time when last check was performed
-    bool in_progress; // sent check but didnt get reply yet
-    int current_lag;  // current lag
-} lagcheck;
-#endif
 
 /* In this class every line that an user writes will be saved for a few seconds (RP_SECONDS).
    Every time he repeats, the counter will be increased until the limit is reached.
@@ -298,22 +284,16 @@ private:
 void detect_flood(chanuser *, chan *);
 #endif
 void detect_repeat(chanuser *, chan *, const char *);
+char *strip_color(const char *, int, int);
 
 void hook_privmsg_notice(const char *from, const char *to, const char *msg)
 {
     chan *ch;
     chanuser *cu;
+    char *stripped_msg;
 
 #ifdef USE_LAGCHECK
-    if(!strcasecmp(from, ME.mask) && !strcasecmp(to, ME.nick) && !strcmp(msg, "RP_LAGCHECK"))
-    {
-        lagcheck.current_lag=NOW-lagcheck.sent;
-        lagcheck.next=NOW+LAGCHECK_DELAY;
-        lagcheck.in_progress=false;
-        return;
-    }
-
-    if(lagcheck.current_lag>MAX_LAG)
+    if(net.irc.lagcheck.getLag()/1000 > MAX_LAG)
         return;
 #endif
     if(!(ch=ME.findChannel(to)))
@@ -325,10 +305,12 @@ void hook_privmsg_notice(const char *from, const char *to, const char *msg)
     if(((info*)cu->customData(m->desc))->wait || cu->flags & (HAS_V | HAS_O | IS_OP))
         return;
 
-    detect_repeat(cu, ch, msg);
+    stripped_msg=strip_color(msg, strlen(msg), false);
+    detect_repeat(cu, ch, stripped_msg);
 #ifdef USE_FLOOD_PROT
     detect_flood(cu, ch);
 #endif
+    free(stripped_msg);
 }
 
 void hook_ctcp(const char *from, const char *to, const char *msg)
@@ -336,8 +318,10 @@ void hook_ctcp(const char *from, const char *to, const char *msg)
     char buffer[MAX_LEN];
     chan *ch;
     chanuser *cu;
+    char *stripped_msg;
+
 #ifdef USE_LAGCHECK
-    if(lagcheck.current_lag>MAX_LAG)
+    if(net.irc.lagcheck.getLag()/1000 > MAX_LAG)
         return;
 #endif 
     if(!(ch=ME.findChannel(to)))
@@ -355,10 +339,12 @@ void hook_ctcp(const char *from, const char *to, const char *msg)
     if(match("ACTION *", msg))
     {
         strncpy(buffer, msg+7, MAX_LEN);
-        detect_repeat(cu, ch, buffer);
+        stripped_msg=strip_color(buffer, strlen(buffer), false);
+        detect_repeat(cu, ch, stripped_msg);
 #ifdef USE_FLOOD_PROT
         detect_flood(cu, ch);
 #endif
+        free(stripped_msg);
     }
 }
 
@@ -375,33 +361,7 @@ void hook_timer()
         ((cache*)ch->customData(m->desc))->delExpiredUsers();
 #endif
     }
-#ifdef USE_LAGCHECK
-    if(lagcheck.in_progress)
-        lagcheck.current_lag=NOW-lagcheck.sent;
-
-    else if(lagcheck.next && NOW>=lagcheck.next)
-    {
-        ME.privmsg(ME.nick, "RP_LAGCHECK", NULL);
-        lagcheck.sent=NOW;
-        lagcheck.in_progress=true;
-    }
-#endif
 }
-
-#ifdef USE_LAGCHECK
-void hook_connected()
-{
-    lagcheck.next=NOW+120;
-    lagcheck.in_progress=false;
-}
-
-void hook_disconnected(const char *reason)
-{
-    lagcheck.current_lag=0;
-    lagcheck.next=0;
-    lagcheck.in_progress=false;
-}
-#endif
 
 #ifdef USE_FLOOD_PROT
 void detect_flood(chanuser *cu, chan *ch)
@@ -419,8 +379,8 @@ void detect_flood(chanuser *cu, chan *ch)
 #endif
             snprintf(buffer, MAX_LEN, "*!%s@%s", cu->ident, cu->host);
 
-            if(!set.BOTS_CAN_ADD_SHIT
-                 || !protmodelist::addShit(ch->name, buffer, "repeat", RP_BANTIME*60, RP_BANREASON))
+            if(!set.BOTS_CAN_ADD_BANS
+                 || !protmodelist::addBan(ch->name, buffer, "repeat", RP_BANTIME*60, RP_BANREASON))
                 ch->knockout(cu, FL_BANREASON, FL_BANTIME*60);
 #ifndef BAN_DIRECTLY
         }
@@ -454,8 +414,8 @@ void detect_repeat(chanuser *cu, chan *ch, const char *msg)
 #endif
             snprintf(buffer, MAX_LEN, "*!%s@%s", cu->ident, cu->host);
 
-            if(!set.BOTS_CAN_ADD_SHIT
-                 || !protmodelist::addShit(ch->name, buffer, "repeat", RP_BANTIME*60, RP_BANREASON))
+            if(!set.BOTS_CAN_ADD_BANS
+                 || !protmodelist::addBan(ch->name, buffer, "repeat", RP_BANTIME*60, RP_BANREASON))
                 ch->knockout(cu, RP_BANREASON, RP_BANTIME*60);
 #ifndef BAN_DIRECTLY
         }
@@ -523,7 +483,7 @@ void prepareCustomData()
 
 extern "C" module *init()
 {
-    m=new module("repeat", "patrick <patrick@psotnic.com>", "0.2");
+    m=new module("repeat", "patrick <patrick@psotnic.com>", "0.2+colorstripper+newlagcheck");
     prepareCustomData();
     m->hooks->new_chanuser=hook_new_chanuser;
     m->hooks->del_chanuser=hook_del_chanuser;
@@ -533,13 +493,6 @@ extern "C" module *init()
     m->hooks->notice=hook_privmsg_notice;
     m->hooks->ctcp=hook_ctcp;
     m->hooks->timer=hook_timer;
-#ifdef USE_LAGCHECK
-    m->hooks->connected=hook_connected;
-    m->hooks->disconnected=hook_disconnected;
-    lagcheck.next=0;
-    lagcheck.current_lag=0;
-    lagcheck.in_progress=false;
-#endif
     return m;
 }
 
@@ -557,3 +510,64 @@ extern "C" void destroy()
 #endif
     }
 }
+
+/** removes color codes from a string.
+ * ripped from X-Chat Copyright (C) 1998 Peter Zelezny
+ *
+ * \param text any string which may contain color codes
+ * \param len len of text variable
+ * \param strip_hidden if true, hidden chars will be stripped
+ * \return the given string without color codes
+ */
+
+char *strip_color(const char *text, int len, int strip_hidden)
+{
+	int i = 0;
+	int rcol = 0, bgcol = 0;
+	int hidden = false;
+	char *new_str;
+
+	new_str = (char*)malloc (len + 2);
+
+	while (len > 0)
+	{
+		if (rcol > 0 && (isdigit (*text) || (*text == ',' && isdigit (text[1]) && !bgcol)))
+		{
+			if (text[1] != ',') rcol--;
+			if (*text == ',')
+			{
+				rcol = 2;
+				bgcol = 1;
+			}
+		} else
+		{
+			rcol = bgcol = 0;
+			switch (*text)
+			{
+			case '\003': // ATTR_COLOR
+				rcol = 2;
+				break;
+			case '\007': // ATTR_BEEP
+			case '\017': // ATTR_RESET
+			case '\026': // ATTR_REVERSE
+			case '\002': // ATTR_BOLD
+			case '\037': // ATTR_UNDERLINE
+			case '\035' : // ATTR_ITALICS
+				break;
+			case '\010' : ////ATTR_HIDDEN
+				hidden = !hidden;
+				break;
+			default:
+				if (!(hidden && strip_hidden))
+					new_str[i++] = *text;
+			}
+		}
+		text++;
+		len--;
+	}
+
+	new_str[i] = 0;
+
+	return new_str;
+}
+

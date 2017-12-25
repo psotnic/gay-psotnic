@@ -4,8 +4,8 @@
  * The user will be banned temporarily.
  */
 
-#include "../prots.h"
-#include "../global-var.h"
+#include <prots.h>
+#include <global-var.h>
 
 /* if the user rejoins after being kicked within this time (in seconds),
    it will be handled as autorejoin.
@@ -95,8 +95,8 @@ void hook_join(chanuser *u, chan *ch, const char *mask, int netjoin)
         autorejoincheck.data.remove(entry);
         snprintf(buffer, MAX_LEN, "*!%s@%s", u->ident, u->host);
 
-        if(set.BOTS_CAN_ADD_SHIT
-           && protmodelist::addShit(ch->name, buffer, "noautorejoin", NOARJ_BAN_TIME*60, "Please disable autorejoin"))
+        if(set.BOTS_CAN_ADD_BANS
+           && protmodelist::addBan(ch->name, buffer, "noautorejoin", NOARJ_BAN_TIME*60, "Please disable autorejoin"))
             return;
 
         else

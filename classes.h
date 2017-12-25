@@ -16,8 +16,10 @@ struct HANDLE;
 #include "pstring.h"
 #include "class-ent.h"
 #include <string>
+#include <list>
 #include <map>
 
+using std::list;
 using std::map;
 
 class XSRand
@@ -75,12 +77,14 @@ class adns
 	hashlist<host2resolv> *todo;
 
 	host2ip *__getIp(const char *host);
-	
+
 	public:
+	void clearCache();
+	bool removeCache(const char *host);
 	virtual void resolv(const char *host) = 0;
 	virtual host2ip *getIp(const char *host) = 0;
 	virtual void expire(time_t t, time_t now) = 0;
-
+	bool isResolving(const char *host);
 	static unsigned int xorHash(const char *str);
 	
 
@@ -169,7 +173,6 @@ class protmodelist
 		char *by;
 		time_t expires;
 		time_t when;
-		time_t last_used;
 		bool sticky;
 
 		entry();
@@ -192,14 +195,13 @@ class protmodelist
 	int remove(const char *mask);
 	int remove(int num);
 
-	int sendShitsToOwner(inetconn *c, const char *nme, int i=0);
-	static int sendShitsToOwner(inetconn *c, int type, const char *channel, const char *expr);
+	int sendBansToOwner(inetconn *c, const char *nme, int i=0);
+	static int sendBansToOwner(inetconn *c, int type, const char *channel, const char *expr);
 	void sendToUserlist(inetconn *c, const char *name);
 	static bool isSticky(const char *mask, int type, const chan *ch);
 	static protmodelist::entry *findSticky(const char *mask, int type, const chan *ch);
-	static entry *updateLastUsedTime(const char *channel, const char *mask, int type);
 	static entry *findBestByMask(const char *channel, const char *mask, int type);
-	static int addShit(const char *channel, const char *mask, const char *from, int delay, const char *reason, const char *bot=NULL);
+	static int addBan(const char *channel, const char *mask, const char *from, int delay, const char *reason, const char *bot=NULL);
 
 	static int expireAll();
 	void clear();
@@ -249,30 +251,6 @@ class comment
 };
 
 
-class asyn_socks5
-{
-	char proxyip[16];
-	unsigned short proxyport;
-	char remotehost[256];
-	unsigned short remoteport;
-	int step;
-
-	int i;
-	int toRead;
-	int fd;
-	char buf[515];
-	unsigned char len;
-	unsigned char atyp;
-
-	public:
-	asyn_socks5();
-	void setup(const char *pip, unsigned short pport, const char *rhost, unsigned short rport);
-	int connect();
-	void disconnect();
-	int work(char byte);
-	int use();
-};
-
 class modeq
 {
 
@@ -297,16 +275,43 @@ class modeq
 	chan *ch;
 	int validate(modeq_ent *e, int &a, int &n);
 	grouplist<modeq_ent> data;
+	grouplist<modeq_ent> sent;
 
 	public:
 
 	modeq_ent *add(time_t exp, const char *m, const char *a=NULL);
+	modeq_ent *addBackup(time_t exp, const char *m, const char *a=NULL);
 	int flush(int prio);
 
 	modeq(chan *channel=NULL);
 	void setChannel(chan *channel);
 	void removeBackupModesFor(const char *mode, const char *arg);
 	modeq_ent *find(const char *mode, const char *arg);
+#ifdef HAVE_DEBUG
+	void display();
+#endif
+	void add_sent(const char *m, const char *a=NULL);
+	modeq_ent *find_sent(const char *mode, const char *arg);
+};
+
+class SentModes
+{
+ public:
+    class entry
+    {
+     public:
+        char mode[3];
+        char *arg;
+
+	entry(char *m, char *a);
+    };
+
+    ptrlist<entry> data;
+
+    SentModes();
+    void add(char *mode, char *arg=NULL);
+    entry *find(char *mode, char *arg=NULL);
+    void remove(char *mode, char *arg=NULL);
 };
 
 class fifo
@@ -476,6 +481,7 @@ class masklist_ent
 	time_t when;
 	char *who;
 	bool sent;
+	int flag;
 
 	masklist_ent(const char *m, const char *w, time_t t);
 	~masklist_ent();
@@ -519,9 +525,22 @@ class inetconn
 	int tmpint;
 	int killTime;
 	int lastPing;
+	class Lagcheck
+	{
+	 public:
+	  time_t next;
+	  int lag;
+	  bool inProgress;
+	  struct timeval sent;
+
+          int getLag();
+	} lagcheck;
+
+	int listener_opt;
 #ifdef HAVE_SSL
 	SSL_CTX *ssl_ctx;
 	SSL *ssl;
+	char *ssl_buffer;
 #endif
 
 
@@ -539,7 +558,7 @@ class inetconn
 	void SSLHandshake();
 #endif
 	int send(const char *lst, ...);
-	int va_send(va_list ap, const char *lst);
+	int sendRaw(const char *lst, ...);
 	int readln(char *buf, int len, int *ok=NULL);
 	int open(const char *pathname, int flags, mode_t mode=0);
 	void close(const char *reason=NULL);
@@ -580,12 +599,21 @@ class inetconn
 class inet
 {
 	public:
-	int conns, max_conns, listenfd, maxFd;
+	class listen_entry
+	{
+		public:
+		int fd;
+		bool use_ssl;
+		int access;
+	};
+
+	int conns, max_conns/*, listenfd*/, maxFd;
 	inetconn *conn, hub, irc;
 #ifdef HAVE_SSL
-	int ssl_listenfd;
+//	int ssl_listenfd;
 	static SSL_CTX *server_ctx;
 #endif
+	ptrlist<listen_entry> listeners;
 
 	inetconn *addConn(int fd);
 	inetconn *findConn(const char *name);
@@ -595,8 +623,8 @@ class inet
 	void sendexcept(int excp, int who, const char *lst, ...);
 	void sendBotListTo(inetconn *c);
 	void sendOwner(const char *who, const char *lst, ...);
-	void sendCmd(inetconn *c, const char *lst, ...);
-	void sendCmd(const char *from, const char *lst, ...);
+	void sendUser(const char *who, const char *lst, ...);
+	int sendHub(const char *str, ...);
 	void propagate(inetconn *from, const char *str, ...);
 	inetconn *findRedirConn(inetconn *c);
 	int bidMaxFd(int fd);
@@ -619,20 +647,19 @@ class inet
 class settings : public options
 {
 	public:
-	entBool PRIVATE_CTCP;
+	entBool REPLY_TO_CTCP;
 	entTime CYCLE_DELAY;
-	entTime REJOIN_DELAY;
+	entTime REJOIN_AFTER_KICK_DELAY;
 	entTime REJOIN_FAIL_DELAY;
 	entTime HUB_CONN_DELAY;
 	entTime IRC_CONN_DELAY;
-	entTime AUTH_TIME;
+	entTime AUTH_TIMEOUT;
 	entInt OPS_PER_MODE;
 	entTime ASK_FOR_OP_DELAY;
 	entTime CONN_TIMEOUT;
 	entTime KEEP_NICK_CHECK_DELAY;
 	entBool SAVE_NICK;
 	entBool REMEMBER_OLD_KEYS;
-	entInt TELNET_OWNERS;
 	entBool GETOP_OP_CHECK;
 	entInt MAX_MATCHES;
 	entInt PERIP_MAX_SHOWN_CONNS;
@@ -643,16 +670,12 @@ class settings : public options
 	entTime SYNFLOOD_IGNORE_TIME;
 	entTime BIE_MODE_BOUNCE_TIME;
 	entTime WASOP_CACHE_TIME;
-	entTime CHAT_TIME;
-	entTime AWAY_TIME;
 	entPerc RANDOMNESS;
 	entTime BETWEEN_MSG_DELAY;
-	entBool PUBLIC_AWAY;
 	entTime CLONE_LIFE_TIME;
 	entInt HOST_CLONES;
 	entInt IDENT_CLONES;
 	entInt PROXY_CLONES;
-	entInt CRITICAL_BOTS;
 	entTime QUARANTINE_TIME;
 	entTime BACKUP_MODE_DELAY;
 	entInt DONT_TRUST_OPS;
@@ -661,7 +684,18 @@ class settings : public options
 	entBool PRE_0211_FINAL_COMPAT;
 	entBool PRE_0214_FINAL_COMPAT;
 	entBool PRE_REV127_COMPAT;
-	entBool BOTS_CAN_ADD_SHIT; 
+	entBool BOTS_CAN_ADD_BANS;
+	entBool RESOLVE_USERS_HOSTNAME;
+	entBool ALLOW_SET_PASS_BY_MSG;
+	entString KICKREASON;
+	entString LIMIT_KICKREASON;
+	entString KEEPOUT_KICKREASON;
+	entString CLONECHECK_KICKREASON;
+	entString PARTREASON;
+	entString QUITREASON;
+	entString CYCLEREASON;
+	entInt MAX_CHANNEL_LIST_MODES;
+	entTime LAG_CHECK_TIME;
 	settings();
 };
 
@@ -681,13 +715,11 @@ class chanset : public options
 	entInt LIMIT_OFFSET;
 	entInt LIMIT_BOTS;
 	entPerc LIMIT_TOLERANCE;
-	entBool CHANNEL_CTCP;
 	entInt ENFORCE_BANS;
 	entBool ENFORCE_LIMITS;
 	entBool STOP_NETHACK;
 	entInt GETOP_BOTS;
 	entTime OWNER_LIMIT_TIME;
-	entBool TAKEOVER;
 	entBool BITCH;
 	entBool WASOPTEST;
 	entBool CLONECHECK;
@@ -697,9 +729,9 @@ class chanset : public options
 	entBool LOCKDOWN;
 	entTime LOCKDOWN_TIME;
 	entInt PROTECT_CHMODES;
-	entChattr MODE_LOCK;
+	entString MODE_LOCK;
 	entBool STRICT_BANS;
-	entBool CHECK_SHIT_ON_NICK_CHANGE;
+	entBool CHECK_BAN_ON_NICK_CHANGE;
 	entBool INVITE_ON_UNBAN_REQUEST;
 	entBool KEEPOUT;
 	entInt IDIOTS;
@@ -729,33 +761,23 @@ class CONFIG : public options
 	entWord nick;
 	entWord altnick;
 	entWord ident;
-	entWord oidentd_cfg;
 	entWord nickappend;
 	entString realname;
 	entHost myipv4;
+	entHost myipv6;
 	entHost vhost;
 	entWord userlist_file;
-	entString kickreason;
-	entString quitreason;
-	entString limitreason;
-	entString keepoutreason;
-	entString partreason;
-	entString cyclereason;
 	entWord botnetword;
 
 	entWord logfile;
 	entWord handle;
 
-	entInt listenport;
-#ifdef HAVE_SSL
-	entInt ssl_listenport;
-#endif
+	entListener listenport[MAX_LISTENPORTS];
+	entMult listenport_storage;
+
 	entBool keepnick;
 	entInt ctcptype;
 	entBool dontfork;
-
-	entHPPH bnc;
-	entHPPH router;
 
 	entHub hub;
 	entMult alt_storage;
@@ -769,7 +791,10 @@ class CONFIG : public options
 #else
 	entServer server[MAX_SERVERS];
 #endif
-	entMD5Hash ownerpass;
+	entServer *currentServer;
+
+	entMult ownerpass_storage;
+	entMD5Hash ownerpass[MAX_OWNERPASSES];
 
 	entMult module_load_storage;
 	entLoadModules module_load[MAX_MODULES];
@@ -785,7 +810,10 @@ class CONFIG : public options
 	entTime domain_ttl;
 #endif
 
-	entBool check_shit_on_nick_change;
+	entBool check_ban_on_nick_change;
+	entBool save_userlist;
+
+	entWord partyline_servername;
 
 	int bottype;
 
@@ -794,6 +822,7 @@ class CONFIG : public options
 	void polish();
 	void load(const char *file, bool decrypted=false);
 	options::event *save(bool decrypted=false);
+	bool checkOwnerpass(const char *str);
 };
 
 class CHANLIST
@@ -832,8 +861,8 @@ class chan
 	grouplist<clone_ident> identClones;
 	grouplist<clone_proxy> proxyClones;
 	chan *next, *prev;
-	pstring<> name, key, topic;
-	int status, limit, channum, nextlimit, synlevel, flags, sentKicks;
+	pstring<> name, topic;
+	int status, channum, nextlimit, synlevel, sentKicks;
 	chanuser *me;
 	chanset *chset;
 	wasoptest *wasop;
@@ -841,7 +870,15 @@ class chan
 	masklist list[4];
 	masklist sentList[4];
 	modeq modeQ[2];
+	SentModes sentModes;
 	protmodelist *protlist[4];
+
+	typedef map<char, string> modesType;
+	modesType modes;
+
+	bool fullSynced;
+	bool banlistfull; ///< ban list is full and cleaning is in progress
+	bool banlistfull_lock; ///< means that the channel is currently locked because of a full banlist
 
 	/* Actions */
 	int op(chanuser **MultHandle, int num);
@@ -853,10 +890,9 @@ class chan
 	int invite(const char *nick);
 	void enforceLimits();
 	void updateLimit();
-	void updateKey(const char *newkey);
 	int massKick(const int who, int lock=0);
 	void requestOp() const;
-	int applyShit(const protmodelist::entry *s, int force=0);
+	int applyBan(const protmodelist::entry *s, int force=0);
 	void enforceBan(const char *ban, chanuser *u, const char *reason=NULL, const bool autoKick=true);
 	int flushKickQueue();
 	void punishClones(const char *mask, bool isMyTurn);
@@ -872,6 +908,7 @@ class chan
 	void gotPart(const char *nick, int netsplit=0);
 	int gotBan(const char *ban, chanuser *caster);
 	bool checkClone(chanuser *u);
+	void justSyncedAndOped();
 
 	chanuser *gotJoin(const char *mask, int def_flags=0);
 	chanuser *getUser(const char *nick);
@@ -885,10 +922,7 @@ class chan
 	int numberOfBots(int num) const;
 	int chops() const;
 	int synced() const;
-	void setFlags(const char *str);
-	void addFlags(const char *str);
-	int hasFlag(char f) const;
-	void removeFlags(const char *str);
+	bool hasFlag(char flag) const;
 	void buildAllowedOpsList(const char *offender);
 	char *getModes();
 	int userLevel(const chanuser *c) const;
@@ -900,16 +934,21 @@ class chan
 	void updateDnsEntries();
 #endif
 
-	protmodelist::entry *checkShit(const chanuser *u, const char *host=NULL);
-	void recheckShits();
+	protmodelist::entry *checkBan(const chanuser *u, const char *host=NULL);
+	void recheckBans();
 	void checkList();
 	void checkKeepout();
-	void checkProtectedChmodes();
+	void checkModelock();
+	void listFullCheck();
 	static char valid(const char *str);
 
 	static bool chanModeRequiresArgument(char ,char);
 	static char getTypeOfChanMode(char);
 	static bool isChannel(const char *);
+	int limit();
+	const char *key();
+	const char *getModeParam(char mode);
+	bool isLockedMode(char _sign, char _mode, const char *_param=NULL);
 
 	/* Debug */
 #ifdef HAVE_DEBUG
@@ -978,11 +1017,13 @@ class client
 	public:
 	chan *first, *last, *current;
 	int channels, joinDelay;
+	bool waitForMyHost;
 	pstring<> nick, ident, host, mask, ircip, uid, overrider;
 	time_t nextNickCheck, startedAt, nextConnToIrc, nextConnToHub;
 	time_t nextRecheck;
 	time_t nextReconnect, ircConnFailDelay;
 	Server server;
+	fifo *queue;
 
 	/* Irc channels */
 	chan *createNewChannel(const char *name);
@@ -1011,8 +1052,8 @@ class client
 	/* Net */
 	int connectToIRC(entServer *s=NULL);
 	int connectToHUB();
-	int jump(const char *host, const char *port, const char *owner, int protocol=AF_INET);
-	int jumps5(const char *proxyhost, int proxyport, const char *ircserver, int ircport, const char *owner);
+	int jump(int number);
+
 	static entServer *getRandomServer();
 
 	/* other */
@@ -1020,6 +1061,7 @@ class client
 	void checkMyHost(const char *to, bool justConnected=0);
 	void privmsg(const char *target, const char *lst, ...);
 	void notice(const char *target, const char *lst, ...);
+	void quit(const char *reason=NULL);
 
 	/* Debug */
 #ifdef HAVE_DEBUG
@@ -1042,6 +1084,7 @@ class ul
 	CHANLIST chanlist[MAX_CHANNELS];
 	int users, bots;
 	unsigned long long int SN; // ;-)
+	time_t timestamp;
 	Pchar *ulbuf;
 	time_t nextSave;
 	protmodelist *protlist[4];
@@ -1095,7 +1138,9 @@ class ul
 	bool hasPartylineAccess(const char *mask) const;
 	static bool isBot(const HANDLE *h);
 	bool isBot(const char *name);
-	bool isBot(unsigned int ip);
+	bool isBot(unsigned int ip); // obsolete
+	bool isBotByAddr(const char *_ip);
+	bool isBotByFD(int fd);
 	static bool isMain(const HANDLE *h);
 	static bool isSlave(const HANDLE *h);
 	static bool isLeaf(const HANDLE *h);
@@ -1120,6 +1165,7 @@ class ul
 	bool save(const char *file, const int cypher=1, const char *key=NULL);
 	int load(const char *file, const int cypher=1, const char *key=NULL);
 	void update();
+	void updated(bool save=true);
 	void send(inetconn *c);
 	void sendToAll();
 	HANDLE *checkBotMD5Digest(unsigned int ip, const char *digest, const char *authstr);
@@ -1160,53 +1206,25 @@ class ptime
 	int operator==(ptime &p);
 };
 
-#ifdef HAVE_TCL
-class tcl
-{
-	Tcl_Interp *tcl_int;
-	char *setGlobalVar(char *name, char *value);
-	void addCommands();
-
-	public:
-
-	int curid;
-	struct timer_t
-	{
-		char *nick;
-		time_t exp;
-		int id;
-	};
-
-	ptrlist<timer_t> timer;
-
-	int load(char *script);
-	Tcl_Interp *getInt();
-	int eval(char *cmd);
-
-	void expireTimers();
-
-	tcl();
-	~tcl();
-
-};
-#endif
-
 class penal
 {
 	private:
 	time_t when;
-	int penality;
+	int penalty;
 
 	public:
 	operator int();
-	void calc();
+	void update();
 	penal operator+(int n);
 	penal operator+=(int n);
 	penal operator-(int n);
 	penal operator-=(int n);
 	penal operator++(int);
 	penal operator--(int);
-	int val() { return penality; };
+	int val() { return penalty; };
+	void calculatePenalty(const char *data);
+	void calculatePenaltyOfChanmode(char *modes, int args, int *mypenalty);
+	void calculatePenaltyOfUsermode(char *modes, int *mypenalty);
 
 	penal(int n=0);
 };
@@ -1244,39 +1262,6 @@ class ign
 	ign();
 };
 
-class idle
-{
-	public:
-	char *away;
-	time_t nextStatus;
-	time_t lastStatus;
-	time_t nextMsg;
-	time_t lastMsg;
-
-	const char **awayReasons;
-	const char **backReasons;
-	const char **awayAdd;
-	const char **backAdd;
-
-	idle();
-	int spread(int x);
-	void calcNextStatus();
-	void calcNextMsg();
-	void sendMsg();
-	void eval();
-	void togleStatus();
-	void init();
-	int getIdle();
-	int getET();
-	int getRT();
-	void load();
-	const char *getRandAwayMsg();
-	const char *getRandBackMsg();
-	const char *getRandAwayAdd();
-	const char *getRandBackAdd();
-
-};
-
 class http
 {
 	public:
@@ -1312,12 +1297,16 @@ class http
 
 	inetconn www;
 	char *data;
+	char *auth;
+	bool sendInfo;
 
 	int get(const char *link, int estSize=4096);
 	int get(const char *link, const char *file);
 
 	int get(url &u, int estSize=4096);
 	int get(url &u, const char *file);
+
+	void setAuth(const char *_auth);
 
 	static char *error(int n);
 
@@ -1340,9 +1329,9 @@ class update
 	pid_t child_pid;
 
 	update();
-	bool forkAndGo(char *site);
+	bool forkAndGo(char *site, const char *idpw=NULL, bool silent=false);
 	void end();
-	bool doUpdate(const char *site);
+	bool doUpdate(const char *site, const char *idpw=NULL, bool silent=false);
 };
 
 

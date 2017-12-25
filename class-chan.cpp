@@ -1,6 +1,7 @@
 /***************************************************************************
  *   Copyright (C) 2003-2006 by Grzegorz Rusin                             *
  *   grusin@gmail.com                                                      *
+ *   Copyright (C) 2009-2010 psotnic.com development team                  *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
@@ -23,7 +24,7 @@
 
 char _chmodes[MAX_LEN];
 
-void chan::recheckShits()
+void chan::recheckBans()
 {
 	if(synced() < 9)
 		return;
@@ -33,9 +34,9 @@ void chan::recheckShits()
 
 	while(u)
 	{
-		if(u->flags & CHECK_SHIT && me->flags & IS_OP)
+		if(u->flags & CHECK_BAN && me->flags & IS_OP)
 		{
-			if((s = checkShit(u)))
+			if((s = checkBan(u)))
 			{
 				u->setReason(s->fullReason());
 				toKick.sortAdd(u);
@@ -47,13 +48,13 @@ void chan::recheckShits()
 				}
 				else modeQ[PRIO_LOW].add(NOW+2, "+b", s->mask);
 			}
-			u->flags &= ~CHECK_SHIT;
+			u->flags &= ~CHECK_BAN;
 		}
 		u++;
 	}
 }
 
-protmodelist::entry *chan::checkShit(const chanuser *u, const char *host)
+protmodelist::entry *chan::checkBan(const chanuser *u, const char *host)
 {
 	static char h[MAX_LEN];
 	protmodelist::entry *s;
@@ -125,7 +126,7 @@ void chan::checkList()
 #ifdef HAVE_ADNS
 void chan::updateDnsEntries()
 {
-	if(!config.resolve_threads)
+	if(!config.resolve_threads || !set.RESOLVE_USERS_HOSTNAME)
 		return;
 
 	ptrlist<chanuser>::iterator u = users.begin();
@@ -190,7 +191,7 @@ void chan::names(const char *owner)
 	ptrlist<chanuser>::iterator p;
 	char nick[6][13];
 
-	net.sendOwner(owner, "[Users ", (const char *) name, "]", NULL);
+	net.sendUser(owner, "[Users %s]", (const char *) name);
 	for(i=0; i<rows; ++i)
 	{
 		for(j=0; j<6; ++j)
@@ -201,16 +202,12 @@ void chan::names(const char *owner)
 				snprintf(nick[j], 13, "[%c%-9s]", p->flags & IS_OP ? '@' : ' ', p->nick);
 		}
 		if(strlen(nick[0]))
-			net.sendOwner(owner, nick[0], " ", nick[1], " ", nick[2], " ", nick[3], " ",  nick[4], " ", nick[5], NULL);
+			net.sendUser(owner, "%s %s %s %s %s %s", nick[0], nick[1], nick[2], nick[3], nick[4], nick[5]);
 	}
 	i = chops();
-	char ops[16], normal[16], total[16];
 
-	strcpy(ops, itoa(i));
-	strcpy(total, itoa(users.entries()));
-	strcpy(normal, itoa(users.entries() - i));
-	net.sendOwner(owner, "-!- Psotnic: ", (const char *) name, "(", getModes(), "): Total of ", total, " nicks [",
-			ops, " ops, ", normal, " normal]", NULL);
+	net.sendUser(owner, "-!- Psotnic: %s (%s): Total of %d nicks [%d ops, %d normal]", (const char *) name, getModes(), users.entries(),
+			i, users.entries() - i);
 }
 
 void chan::cwho(const char *owner, const char *arg)
@@ -232,21 +229,20 @@ void chan::cwho(const char *owner, const char *arg)
 		{
 			if(((f & IS_VOICE) && (p->flags & IS_VOICE)) || ((f & IS_OP) && (p->flags & IS_OP)) || ((f & HAS_B) && (p->flags & HAS_B)) || ((f & IS_LUSER) && !(p->flags & IS_VOICE || p->flags & IS_OP)))
 			{
-				memset(buf, 0, sizeof(buf));
-				snprintf(buf, 512, "[%3d] [%c%-12s] [%12s\002@\002%-40s]", ++i, p->flags & IS_OP ? '@' : p->flags & IS_VOICE ? '+' : ' ', (const char *) p->nick, (const char *) p->ident, (const char *) p->host);
-				net.sendOwner(owner, buf, NULL);
+				userlist.flags2str(p->flags, buf);
+				net.sendUser(owner, "[%3d] [%c%-12s] [%12s@%-40s] %s", ++i, p->flags & IS_OP ? '@' : p->flags & IS_VOICE ? '+' : ' ', (const char *) p->nick, (const char *) p->ident, (const char *) p->host, buf);
 			}
 		}
 		else
 		{
-			memset(buf, 0, sizeof(buf));
-			snprintf(buf, 512, "[%3d] [%c%-12s] [%12s\002@\002%-40s]", ++i, p->flags & IS_OP ? '@' : p->flags & IS_VOICE ? '+' : ' ', (const char *) p->nick, (const char *) p->ident, (const char *) p->host);
-			net.sendOwner(owner, buf, NULL);
+			userlist.flags2str(p->flags, buf);
+			net.sendUser(owner, "[%3d] [%c%-12s] [%12s@%-40s] %s", ++i, p->flags & IS_OP ? '@' : p->flags & IS_VOICE ? '+' : ' ', (const char *) p->nick, (const char *) p->ident, (const char *) p->host, buf);
 		}
+
 		p++;
 	}
 
-	if(!i) net.sendOwner(owner, "[*] Psotnic: No matches found", NULL);
+	if(!i) net.sendUser(owner, "Psotnic: No matches found");
 }
 
 int chan::userLevel(int flags) const
@@ -269,40 +265,27 @@ int chan::userLevel(const chanuser *u) const
 	return u ? userLevel(u->flags) : 0;
 }
 
+/** Tells the current channel modes and parameters.
+ * Example: ntkl xxx 123
+ *
+ * \author patrick <patrick@psotnic.com>
+ * \return current channel modes and parameters
+ */
+
 char *chan::getModes()
 {
-	/* imnpstaqr */
-	memset(_chmodes, 0, MAX_LEN);
+  modesType::iterator it;
+  string str1, str2;
 
-	//overflow
-	if(key && strlen(key) > MAX_LEN - 50)
-	{
-		strcpy(_chmodes, "buffer overflow attempt");
-		return _chmodes;
-	}
-	strcpy(_chmodes, "+");
-	if(key && *key)	strcat(_chmodes, "k");
-	if(limit) strcat(_chmodes, "l");
-	if(flags & FLAG_I) strcat(_chmodes, "i");
-	if(flags & FLAG_M) strcat(_chmodes, "m");
-	if(flags & FLAG_N) strcat(_chmodes, "n");
-	if(flags & FLAG_P) strcat(_chmodes, "p");
-	if(flags & FLAG_S) strcat(_chmodes, "s");
-	if(flags & FLAG_T) strcat(_chmodes, "t");
-	if(flags & FLAG_Q) strcat(_chmodes, "q");
-	if(flags & FLAG_R) strcat(_chmodes, "r");
+  for (it=modes.begin(); it != modes.end(); it++) {
+    str1+=it->first;
 
-	if(key && *key)
-	{
-		strcat(_chmodes, " ");
-		strcat(_chmodes, key);
-	}
-	if(limit)
-	{
-		strcat(_chmodes, " ");
-		strcat(_chmodes, itoa(limit));
-	}
-	return _chmodes;
+    if (!(*it).second.empty())
+      str2+=it->second;
+  }
+
+  snprintf(_chmodes, MAX_LEN, "%s %s", str1.c_str(), str2.c_str());
+  return _chmodes;
 }
 
 int chan::myTurn(int num, int hash)
@@ -339,13 +322,7 @@ void chan::buildAllowedOpsList(const char *offender)
 
 	if(synced())
 	{
-		if(chset->TAKEOVER)
-		{
-			userlist.chanlist[channum].allowedOps = NULL;
-			return;
-		}
-		else
-			userlist.chanlist[channum].allowedOps = new wasoptest(60);
+		userlist.chanlist[channum].allowedOps = new wasoptest(60);
 
 		kicker = getUser(offender);
 		if(kicker && !(kicker->flags & HAS_F)) toKick.sortAdd(kicker);
@@ -361,52 +338,24 @@ void chan::buildAllowedOpsList(const char *offender)
 	}
 }
 
-void chan::setFlags(const char *str)
+/** Checks if a channel mode is set.
+ *
+ * \author patrick <patrick@psotnic.com>
+ * \param flag a channel mode
+ * \return true if the flag is set otherwise false
+ */
+
+bool chan::hasFlag(char flag) const
 {
-	flags = 0;
-	addFlags(str);
-}
+  modesType::const_iterator iter;
 
-void chan::addFlags(const char *str)
-{
-	/* imnpstaqr */
-	strchr(str, 'i') ? flags |= FLAG_I : 0;
-	strchr(str, 'n') ? flags |= FLAG_N : 0;
-	strchr(str, 's') ? flags |= FLAG_S : 0;
-	strchr(str, 'm') ? flags |= FLAG_M : 0;
-	strchr(str, 't') ? flags |= FLAG_T : 0;
-	strchr(str, 'r') ? flags |= FLAG_R : 0;
-	strchr(str, 'p') ? flags |= FLAG_P : 0;
-	strchr(str, 'q') ? flags |= FLAG_Q : 0;
+  iter=modes.find(flag);
 
-}
+  if(iter != modes.end())
+    return true;
 
-void chan::removeFlags(const char *str)
-{
-	strchr(str, 'i') ? flags &= ~FLAG_I : 0;
-	strchr(str, 'n') ? flags &= ~FLAG_N : 0;
-	strchr(str, 's') ? flags &= ~FLAG_S : 0;
-	strchr(str, 'm') ? flags &= ~FLAG_M : 0;
-	strchr(str, 't') ? flags &= ~FLAG_T : 0;
-	strchr(str, 'r') ? flags &= ~FLAG_R : 0;
-	strchr(str, 'p') ? flags &= ~FLAG_P : 0;
-	strchr(str, 'q') ? flags &= ~FLAG_Q : 0;
-}
-
-int chan::hasFlag(char f) const
-{
-	if(f == 'i' && flags & FLAG_I) return 1;
-	else if(f == 'n' && flags & FLAG_N) return 1;
-	else if(f == 's' && flags & FLAG_S) return 1;
-	else if(f == 'm' && flags & FLAG_M) return 1;
-	else if(f == 't' && flags & FLAG_T) return 1;
-	else if(f == 'r' && flags & FLAG_R) return 1;
-	else if(f == 'p' && flags & FLAG_P) return 1;
-	else if(f == 'q' && flags & FLAG_Q) return 1;
-	else if(f == 'k' && key && *key) return 1;
-	else if(f == 'l' && limit) return 1;
-
-	return 0;
+  else
+    return false;
 }
 
 int chan::synced() const
@@ -427,19 +376,6 @@ int chan::chops() const
 	return ops;
 }
 
-void chan::updateKey(const char *newkey)
-{
-	if(!strcmp(key, newkey)) return;
-
-	key = newkey;
-
-	if(set.REMEMBER_OLD_KEYS ? *newkey : 1)
-	{
-		userlist.chanlist[channum].pass = newkey;
-		userlist.nextSave = NOW + SAVEDELAY;
-	}
-}
-
 void chan::requestOp() const
 {
 
@@ -454,7 +390,7 @@ void chan::requestOp() const
 		c = net.findConn(multHandle[i]->nick);
 		if(c && c->isRegBot())
 		{
-			c->send(S_BOP, " ", (const char *) name, NULL);
+			c->send("%s %s", S_BOP, (const char *) name);
 		}
 	}
 	free(multHandle);
@@ -478,21 +414,14 @@ void chan::recheckFlags()
 		}
 		p++;
 	}
+
+	justSyncedAndOped();
 }
 
 int chan::gotBan(const char *ban, chanuser *caster)
 {
 	if(!ban)
 		return 0;
-
-	if(config.bottype == BOT_MAIN)
-		protmodelist::updateLastUsedTime(name, ban, BAN);
-	else if(caster == me)
-	{
-		inetconn *c = net.findMainBot();
-		if(c)
-			c->send(S_SHITOBSERVED, " ", (const char *) name, " ", ban, " ", caster->nick, "!", caster->ident, "@", caster->host, NULL);
-	}
 
 	HANDLE *h = userlist.first;
 	ptrlist<chanuser>::iterator u;
@@ -549,7 +478,7 @@ int chan::gotBan(const char *ban, chanuser *caster)
 				snprintf(reason, MAX_LEN, "banned");
 		}
 		else
-			snprintf(reason, MAX_LEN, "banned by %s: \002%s\002", caster->nick, ban);
+			snprintf(reason, MAX_LEN, "banned by %s: %s", caster->nick, ban);
 
 		int ulevel = userLevel(caster);
 
@@ -564,7 +493,7 @@ int chan::gotBan(const char *ban, chanuser *caster)
 					continue;
 
 				snprintf(buf, MAX_LEN, "%s!%s@%s", u->nick, u->ident, u->host);
-				if(s ? (bool) checkShit(u, buf) : ((bool) u->matchesBan(ban) && !list[EXEMPT].match(buf)))
+				if(s ? (bool) checkBan(u, buf) : ((bool) u->matchesBan(ban) && !list[EXEMPT].match(buf)))
 				{
 					if(!u->reason)
 						u->setReason(reason);
@@ -587,14 +516,14 @@ void chan::reOp()
 {
 	if(users.entries() == 1)
 	{
-		net.irc.send("PART ", (const char *) name, NULL);
-		net.irc.send("JOIN ", (const char *) name, NULL);
+		net.irc.send("PART %s", (const char *) name);
+		net.irc.send("JOIN %s", (const char *) name);
 	}
 	else if(users.entries() > 1 && config.listenport)
 	{
 		char *buf = push(NULL, S_CYCLE, (const char *) name, NULL);
 		quoteBots(buf);
-		net.send(HAS_N, "[*] Reoping ", (const char *) name, NULL);
+		net.send(HAS_N, "Reoping %s", (const char *) name);
 		free(buf);
 	}
 }
@@ -609,7 +538,7 @@ void chan::quoteBots(const char *str)
 		if(p->flags & HAS_B)
 		{
 			c = net.findConn(p->nick);
-			if(c && c->isRegBot()) c->send(str, NULL);
+			if(c && c->isRegBot()) c->send("%s", str);
 			p++;
 		}
 	}
@@ -646,8 +575,8 @@ void chan::gotNickChange(const char *from, const char *to)
 		--sentKicks;
 	}
 
-	if((chset->CHECK_SHIT_ON_NICK_CHANGE || config.check_shit_on_nick_change))
-		p->flags |= CHECK_SHIT;
+	if((chset->CHECK_BAN_ON_NICK_CHANGE || config.check_ban_on_nick_change))
+		p->flags |= CHECK_BAN;
 }
 
 chanuser *chan::getUser(const char *nick)
@@ -682,7 +611,7 @@ void chan::gotKick(const char *victim, const char *offender, const char *reason)
 			toKick.sortAdd(kicker);
 			if(myTurn(chset->PUNISH_BOTS, kicker->hash32()))
 			{
-				kick(kicker, config.kickreason);
+				kick(kicker, set.KICKREASON);
 
 				/* idiots code */
 				if((int) chset->IDIOTS)
@@ -697,13 +626,13 @@ void chan::gotKick(const char *victim, const char *offender, const char *reason)
 					else
 					{
 						if(net.hub.fd && net.hub.isMain())
-							net.hub.send(S_ADDIDIOT, " ", offender, " ", (const char *) name, " 1 ", b, NULL);
+							net.hub.send("%s %s %s %s %s", S_ADDIDIOT, offender, (const char *) name, " 1 ", b);
 						else
 						{
 							for(int i=0; i<net.max_conns; ++i)
 								if(net.conn[i].isMain() && net.conn[i].fd)
 								{
-									net.conn[i].send(S_ADDIDIOT, " ", offender, " ", (const char *) name, " 1 ", b, NULL);
+									net.conn[i].send("%s %s %s %s %s", S_ADDIDIOT, offender, (const char *) name, " 1 ", b);
 									break;
 								}
 						}
@@ -714,7 +643,7 @@ void chan::gotKick(const char *victim, const char *offender, const char *reason)
 		}
 	}
 
-	if((limit <= users.entries() - 1 || (flags & FLAG_I)) && (kicked->flags & HAS_I) &&
+	if((limit() <= users.entries() - 1 || hasFlag('i')) && (kicked->flags & HAS_I) &&
 		myTurn(chset->INVITE_BOTS, kicker->hash32()))
 		inv = 1;
 
@@ -758,8 +687,7 @@ void chan::gotPart(const char *nick, int netsplit)
 
 		if(chset->CYCLE && synced() && users.entries() == 1 && !(me->flags & IS_OP))
 		{
-			net.irc.send("PART ", (const char *) name, " :regaining op... duuuh", NULL);
-			penalty += 2;
+			net.irc.send("PART %s :regaining op... duuuh", (const char *) name);
 			ME.rejoin(name, 0);
 		}
 	}
@@ -773,7 +701,7 @@ void chan::gotPart(const char *nick, int netsplit)
 		else
 			tolerance = (chset->LIMIT_TOLERANCE * chset->LIMIT_OFFSET)/(-100);
 
-		if(limit > users.entries() + chset->LIMIT_OFFSET + tolerance)
+		if(limit() > users.entries() + chset->LIMIT_OFFSET + tolerance)
 			nextlimit = NOW + chset->LIMIT_TIME_DOWN;
 	}
 }
@@ -792,6 +720,13 @@ void chan::display()
 	printf("opedBots (%d):\n", opedBots.entries());
 	opedBots.display();
 	printf("modes: %s\n", getModes());
+	modesType::iterator iter;
+	for(iter=modes.begin(); iter != modes.end(); iter++)
+		cout << (*iter).first << " " <<  (*iter).second << endl;
+	printf("queue (PRIO_HIGH):\n");
+	modeQ[PRIO_HIGH].display();
+	printf("queue (PRIO_LOW):\n");
+	modeQ[PRIO_LOW].display();
 }
 #endif
 
@@ -903,7 +838,8 @@ chanuser *chan::gotJoin(const char *mask, int def_flags)
 	bool badBoy;
 
 #ifdef HAVE_ADNS
-	 badBoy = p->updateDNSEntry();
+	if(set.RESOLVE_USERS_HOSTNAME)
+		badBoy = p->updateDNSEntry();
 #endif
 
 	users.add(p);
@@ -916,7 +852,7 @@ chanuser *chan::gotJoin(const char *mask, int def_flags)
 
 			if(!over)
 			{
-				p->setReason(config.limitreason);
+				p->setReason(set.LIMIT_KICKREASON);
 				toKick.sortAdd(p);
 
 				chanuser tmp(ME.overrider, this);
@@ -924,17 +860,17 @@ chanuser *chan::gotJoin(const char *mask, int def_flags)
 				{
 					badBoy = true;
 					snprintf(buf, MAX_LEN, "*!%s@%s", tmp.ident, tmp.host);
-					enforceBan(buf, me, config.limitreason);
+					enforceBan(buf, me, set.LIMIT_KICKREASON);
 				}
 			}
 			else if(!(over->flags & HAS_N))
 			{
-				p->setReason(config.limitreason);
+				p->setReason(set.LIMIT_KICKREASON);
 				toKick.sortAdd(p);
 				badBoy = true;
 
 				snprintf(buf, MAX_LEN, "*!%s@%s", over->ident, over->host);
-				enforceBan(buf, me, config.limitreason);
+				enforceBan(buf, me, set.LIMIT_KICKREASON);
 			}
 
 			if(badBoy == true && (int) chset->IDIOTS)
@@ -948,13 +884,13 @@ chanuser *chan::gotJoin(const char *mask, int def_flags)
 					else
 					{
 						if(net.hub.fd && net.hub.isMain())
-							net.hub.send(S_ADDIDIOT, " ", (const char *) ME.overrider, " ", (const char *) name, " 1 ", a, NULL);
+							net.hub.send("%s %s %s %s %s", S_ADDIDIOT, (const char *) ME.overrider, (const char *) name, " 1 ", a);
 						else
 							for(int i=0; i<net.max_conns; ++i)
 							{
 								if(net.conn[i].isMain() && net.conn[i].fd)
 								{
-									net.conn[i].send(S_ADDIDIOT, " ", (const char *) ME.overrider, " ", (const char *) name, " 1 ", a, NULL);
+									net.conn[i].send("%s %s %s %s %s", S_ADDIDIOT, (const char *) ME.overrider, (const char *) name, " 1 ", a);
 									break;
 								}
 							}
@@ -968,57 +904,70 @@ chanuser *chan::gotJoin(const char *mask, int def_flags)
 
 	if(p->flags & HAS_K)
 	{
-		p->setReason(config.kickreason);
+		p->setReason(set.KICKREASON);
 		toKick.sortAdd(p);
 		badBoy = true;
 
 		if(synced() && myTurn(chset->PUNISH_BOTS, p->hash32()))
-			kick(p, config.kickreason);
+			kick(p, set.KICKREASON);
 	}
 	else if(!(p->flags & (HAS_V | HAS_O)) && chset->KEEPOUT)
 	{
 		if(synced())
 		{
-			if(!hasFlag('i') && myTurn(chset->GUARDIAN_BOTS, p->hash32()))
+			if(!hasFlag('i') && myTurn(chset->GUARDIAN_BOTS, hash32(name)))
 			{
 				modeQ[PRIO_HIGH].add(NOW, "+i");
 				modeQ[PRIO_HIGH].flush(PRIO_HIGH);
 			}
 
 			if(myTurn(chset->PUNISH_BOTS, p->hash32()))
-				kick(p, config.keepoutreason);
+				kick(p, set.KEEPOUT_KICKREASON);
 
 			badBoy = true;
 		}
 	}
-	else if(((chset->TAKEOVER ? 1 : !(def_flags & NET_JOINED)) && chset->ENFORCE_LIMITS
-		&& limit && users.entries() > limit && !(p->flags & HAS_F)))
+	else if((!(def_flags & NET_JOINED) && chset->ENFORCE_LIMITS
+		&& limit() && users.entries() > limit() && !(p->flags & HAS_F)))
 	{
 		if(synced())
 		{
-			p->setReason(config.limitreason);
+			p->setReason(set.LIMIT_KICKREASON);
 			toKick.sortAdd(p);
 			if(myTurn(chset->PUNISH_BOTS, p->hash32()))
-				kick(p, config.limitreason);
+				kick(p, set.LIMIT_KICKREASON);
 
 			badBoy = true;
 		}
 	}
-	else if((s = checkShit(p, mask)))
+	else if((s = checkBan(p, mask)))
 	{
+		bool isInBanlist;
+
 		p->setReason(s->fullReason());
-		//toKick.sortAdd(p);
 		badBoy = true;
+		isInBanlist = list[BAN].match(mask);
 
 		if(myTurn(chset->PUNISH_BOTS, p->hash32()))
 		{
-			modeQ[PRIO_HIGH].add(NOW, "+b", s->mask);
-			modeQ[PRIO_HIGH].flush(PRIO_HIGH);
-
-			//kick(p, p->reason);
+			if(isInBanlist)
+				toKick.sortAdd(p);
+			else
+			{
+				modeQ[PRIO_HIGH].add(NOW, "+b", s->mask);
+				modeQ[PRIO_HIGH].flush(PRIO_HIGH);
+			}
 		}
-		else modeQ[PRIO_LOW].add(NOW+2, "+b", s->mask);
+
+		else if(!isInBanlist)
+			modeQ[PRIO_LOW].add(NOW+2, "+b", s->mask);
 	}
+        else if(!(p->flags & HAS_F) && synced() >= 9 && list[BAN].match(mask) && !list[EXEMPT].match(mask))
+        {
+                if(myTurn(chset->PUNISH_BOTS, p->hash32()))
+                        toKick.sortAdd(p);
+        }
+	// auto op
 	else if((p->flags & (HAS_O | HAS_A | IS_OP)) == (HAS_O | HAS_A))
 	{
 		if(p->flags & HAS_B) botsToOp.sortAdd(p);
@@ -1029,11 +978,11 @@ chanuser *chan::gotJoin(const char *mask, int def_flags)
 			//if it is a bot
 			if(p->flags & HAS_B)
 			{
-				if(chset->BOT_AOP_MODE == 2 || (chset->BOT_AOP_MODE == 1 && toKick.entries() > 4) || chset->TAKEOVER)
+				if(chset->BOT_AOP_MODE == 2 || (chset->BOT_AOP_MODE == 1 && toKick.entries() > 4))
 				{
 					if(net.findConn(p->nick) && myTurn(chset->BOT_AOP_BOTS, p->hash32()))
 					{
-						if(chset->TAKEOVER ? 1 : !(def_flags & NET_JOINED))
+						if(!(def_flags & NET_JOINED))
 							op(p);
 
 						modeQ[PRIO_HIGH].add(NOW+2, "+o", p->nick);
@@ -1042,13 +991,14 @@ chanuser *chan::gotJoin(const char *mask, int def_flags)
 			}
 			else if(myTurn(chset->AOP_BOTS, p->hash32()))
 			{
-				if(chset->TAKEOVER ? 1 : !(def_flags & NET_JOINED))
+				if(!(def_flags & NET_JOINED))
 					op(p);
 
 				modeQ[PRIO_LOW].add(NOW+2, "+o", p->nick);
 			}
 		}
 	}
+	// auto voice
 	else if((p->flags & (HAS_V | HAS_A | IS_VOICE)) == (HAS_V | HAS_A))
 	{
 		if(synced() && opedBots.entries())
@@ -1059,12 +1009,11 @@ chanuser *chan::gotJoin(const char *mask, int def_flags)
 			}
 		}
 	}
-
 	if(p->flags & IS_OP)
 	{
 		if(!(p->flags & HAS_O))
 		{
-			if(chset->TAKEOVER || (userlist.chanlist[channum].allowedOps &&
+			if((userlist.chanlist[channum].allowedOps &&
 				!userlist.chanlist[channum].allowedOps->remove(p)))
 					toKick.sortAdd(p);
 		}
@@ -1084,12 +1033,12 @@ chanuser *chan::gotJoin(const char *mask, int def_flags)
 	badBoy |= checkClone(p);
 
 #ifdef HAVE_ADNS
-	if(!badBoy)
+	if(set.RESOLVE_USERS_HOSTNAME && !badBoy)
 		resolver->resolv(p->host);
 #endif
 
 	if(!(p->flags & HAS_F) || synced() < 9)
-		p->flags |= CHECK_SHIT;
+		p->flags |= CHECK_BAN;
 
 	if(penalty < 10)
 		modeQ[PRIO_HIGH].flush(PRIO_HIGH);
@@ -1109,11 +1058,14 @@ chan::chan()
 	: CustomDataStorage()
 #endif
 {
-	sentKicks = flags = limit = status = synlevel = 0;
+	sentKicks = status = synlevel = 0;
+	banlistfull = false;
+	banlistfull_lock = false;
 	me = NULL;
 	initialOp = 0;
 	since = NOW;
 	nextlimit = -1;
+	fullSynced=false;
 	users.removePtrs();
 	hostClones.removePtrs();
 	identClones.removePtrs();
@@ -1137,7 +1089,7 @@ chanuser::chanuser(const char *str)
 	: CustomDataStorage()
 #endif
 {
-	char *a = (char *) strchr(str, '!');
+	char *a = strchr((char *)str, '!');
 	if(a) mem_strncpy(nick, str, (int) abs(str - a) + 1);
 	else mem_strcpy(nick, str);
 
@@ -1158,8 +1110,8 @@ chanuser::chanuser(const char *m, const chan *ch, const int f, const bool scan)
 	: CustomDataStorage()
 #endif
 {
-	char *a = (char *) strchr(m, '!');
-	char *b = (char *) strchr(m, '@');
+	char *a = strchr((char *)m, '!');
+	char *b = strchr((char *)m, '@');
 
 	reason = NULL;
 
@@ -1297,7 +1249,12 @@ bool chanuser::ok() const
 #ifdef HAVE_ADNS
 int chanuser::updateDNSEntry()
 {
-	adns::host2ip *info = resolver->getIp(host);
+	adns::host2ip *info;
+
+	if(*ip4 || *ip6)
+            return 1;
+
+        info = resolver->getIp(host);
 
 	if(info)
 	{
@@ -1326,20 +1283,15 @@ int chanuser::updateDNSEntry()
  * It makes also sure that the channel is either +k or +i.
  * If the channel was +k, the bot will set +i so that the guy cannot rejoin.
  *
- * FIXME: Isn't it enough to check this when someone is joining?
- *        This function is executed too often. It can slow down the bot.
- *        But then we need another way to kick users that lost their flags
- *        and to kick users when keepout has just been enabled.
- *
  * \author patrick <patrick@psotnic.com>
  */
 
 void chan::checkKeepout()
 {
-	if(synced() < 9)
-		return;
+	//if(synced() < 9)
+	//	return;
 
-	if(!hasFlag('i') && !(*key))
+	if(!hasFlag('i') && !(*key()))
 	{
 		modeQ[PRIO_HIGH].add(NOW, "+i");
 		modeQ[PRIO_HIGH].flush(PRIO_HIGH);
@@ -1351,73 +1303,17 @@ void chan::checkKeepout()
 	{
 		if(!(u->flags & (HAS_V | HAS_O)))
 		{
-			if(*key && !hasFlag('i'))
+			if(*key() && !hasFlag('i'))
 			{
 				modeQ[PRIO_HIGH].add(NOW, "+i");
 				modeQ[PRIO_HIGH].flush(PRIO_HIGH);
 			}
 
-			u->setReason(config.keepoutreason);
+			u->setReason(set.KEEPOUT_KICKREASON);
 			toKick.sortAdd(u);
 		}
 
 		u++;
-	}
-}
-
-void chan::checkProtectedChmodes()
-{
-	unsigned int i;
-	bool pos = true;
-	const char *modes=chset->MODE_LOCK.getValue();
-	char mode[3];
-	time_t flush_time = NOW;
-	int PRIO = PRIO_LOW;
-
-	if(synced() < 9 || !(me->flags & IS_OP))
-		return;
-
-	if(myTurn(chset->GUARDIAN_BOTS))
-	{
-	 	PRIO = PRIO_HIGH;
-	}
-	else
-	{
-	 	flush_time += (rand() % 16);
-	}
-
-	for(i=0; modes[i] && modes[i] != ' ' ; i++)
-	{
-		switch(modes[i])
-		{
-			case '+' : pos=true; break;
-			case '-' : pos=false; break;
-			default  :
-				if((pos && !hasFlag(modes[i])) || (!pos && hasFlag(modes[i])) ||
-						(pos && ((modes[i] == 'k' && strcmp((const char *) key, chset->MODE_LOCK.getKey()) && hasFlag(modes[i]))
-							 || ((modes[i] == 'l' && limit != chset->MODE_LOCK.getLimit()) && hasFlag(modes[i])))))
-				{
-					mode[0]=pos?'+':'-';
-					mode[1]=modes[i];
-					mode[2]='\0';
-
-					if(modes[i] == 'k')
-					{
-						if(pos == false)
-							modeQ[PRIO].add(flush_time, mode, key);
-						else
-							modeQ[PRIO].add(flush_time, mode, chset->MODE_LOCK.getKey());
-					}
-					else if(pos == true && modes[i] == 'l')
-					{
-						modeQ[PRIO].add(flush_time, mode, itoa(chset->MODE_LOCK.getLimit()));
-					}
-					else
-					{
-						modeQ[PRIO].add(flush_time, mode);
-					}
-				}
-		}
 	}
 }
 
@@ -1531,7 +1427,7 @@ bool chan::isChannel(const char *_name)
     int i, len;
     const char *chantypes=ME.server.isupport.find("CHANTYPES");
 
-    if(!_name || !*_name)
+    if(!_name || *_name == '\0')
         return false;
 
     if(!chantypes)
@@ -1546,4 +1442,448 @@ bool chan::isChannel(const char *_name)
     }
 
     return false;
+}
+
+/** Tells the parameter of a channel mode.
+ * getModeParam('k) returns the key and so on.
+ *
+ * \author patrick <patrick@psotnic.com>
+ * \return mode parameter or ""
+ */
+
+const char *chan::getModeParam(char mode)
+{
+  static char param[MAX_LEN];
+  modesType::iterator iter;
+
+  iter=modes.find(mode);
+
+  if(iter != modes.end()) {
+    if(!iter->second.empty()) {
+      strncpy(param, iter->second.c_str(), MAX_LEN);
+      return param;
+    }
+  }
+
+  return "";
+}
+
+/** Tells the channel limit.
+ *
+ * \author patrick <patrick@psotnic.com>
+ * \return channel limit
+ */
+
+int chan::limit()
+{
+  modesType::iterator iter;
+
+  iter=modes.find('l');
+
+  if(iter != modes.end()) {
+    if(!iter->second.empty())
+       return str2int(iter->second);
+  }
+
+  return 0;
+}
+
+/** Tells the channel key.
+ *
+ * \author patrick <patrick@psotnic.com>
+ * \return channel key
+ */
+
+const char *chan::key()
+{
+  static char _key[MAX_LEN];
+  modesType::iterator iter;
+
+  iter=modes.find('k');
+
+  if(iter != modes.end()) {
+    if(!iter->second.empty()) {
+       strncpy(_key, iter->second.c_str(), MAX_LEN);
+       return _key;
+    }
+  }
+
+  return "";
+}
+
+/** missing.
+ *
+ * \author patrick <patrick@psotnic.com>
+ */
+
+void chan::checkModelock()
+{
+  int mode_idx, arg_idx=1, mode_len, PRIO=PRIO_LOW;
+  char arg[10][MAX_LEN], _mode[3], sign='+', type;
+  time_t flush_time=NOW+5; // wait for bots who ask for op
+
+  if(!(me->flags & IS_OP))
+    return;
+
+  if(myTurn(chset->GUARDIAN_BOTS))
+    PRIO=PRIO_LOW; // changed 05.08.2010, FIXME
+
+  else
+    flush_time+=20+(int)(120.0*rand()/(RAND_MAX+1.0));
+
+  str2words(arg[0], chset->MODE_LOCK, 10, MAX_LEN);
+
+  // arg[0] = modes
+  // arg[1-n] = args
+
+  mode_len=strlen(arg[0]);
+
+  for(mode_idx=0; mode_idx < mode_len; mode_idx++) {
+    if(arg[0][mode_idx] == '+' || arg[0][mode_idx] == '-') {
+      sign=arg[0][mode_idx];
+      continue;
+    }
+
+    type=chan::getTypeOfChanMode(arg[0][mode_idx]);
+
+    _mode[0]=sign;
+    _mode[1]=arg[0][mode_idx];
+    _mode[2]='\0';
+
+    if(type == 'B') {
+      if(arg_idx >= 10 || !*arg[arg_idx])
+        return; // broken mode-lock
+
+      if(sign == '+') {
+        if(strcmp(arg[arg_idx], "*") && (!hasFlag(arg[0][mode_idx]) || strcmp(getModeParam(arg[0][mode_idx]), arg[arg_idx])))
+          modeQ[PRIO].add(flush_time, _mode, arg[arg_idx]);
+      }
+
+      else {
+        if(hasFlag(arg[0][mode_idx]) && (!strcmp(arg[arg_idx], "*") || !strcmp(getModeParam(arg[0][mode_idx]), arg[arg_idx])))
+          modeQ[PRIO].add(flush_time, _mode, getModeParam(arg[0][mode_idx]));
+      }
+
+      arg_idx++;
+    }
+
+    else if(type == 'C') {
+      if(sign == '+') {
+        if(arg_idx >= 10 || !*arg[arg_idx])
+          return; // broken mode-lock
+
+        if(strcmp(arg[arg_idx], "*") && (!hasFlag(arg[0][mode_idx]) || strcmp(getModeParam(arg[0][mode_idx]), arg[arg_idx])))
+          modeQ[PRIO].add(flush_time, _mode, arg[arg_idx]);
+
+        arg_idx++;
+      }
+
+      else {
+        if(hasFlag(arg[0][mode_idx]))
+          modeQ[PRIO].add(flush_time, _mode);
+      }
+    }
+
+    else if(type == 'D') {
+      if((sign == '+' && !hasFlag(arg[0][mode_idx])) || (sign == '-' && hasFlag(arg[0][mode_idx])))
+        modeQ[PRIO].add(flush_time, _mode);
+    }
+
+    else
+      return; // unknown mode type
+  }
+}
+
+/** Checks if a certain mode is locked.
+ *
+ * \author patrick <patrick@psotnic.com>
+ * \param _sign '+' or '-'
+ * \param _mode a mode
+ * \param _param mode parameter (optional)
+ * \return true if the mode is locked otherwise false
+ */
+
+bool chan::isLockedMode(char _sign, char _mode, const char *_param)
+{
+  char arg[10][MAX_LEN], type;
+  int mode_idx, arg_idx=1, mode_len;
+  char sign;
+
+  str2words(arg[0], chset->MODE_LOCK, 10, MAX_LEN);
+
+  mode_len=strlen(arg[0]);
+
+  for(mode_idx=0; mode_idx < mode_len; mode_idx++) {
+
+    if(arg[0][mode_idx] == '+' || arg[0][mode_idx] == '-') {
+      sign=arg[0][mode_idx];
+      continue;
+    }
+
+    type=chan::getTypeOfChanMode(arg[0][mode_idx]);
+
+    if(sign == _sign && arg[0][mode_idx] == _mode) {
+      if(type == 'B') {
+        if(arg_idx >= 10 || !*arg[arg_idx])
+          return false; // broken mode-lock
+
+        if(_param != NULL && !strcmp(_param, arg[arg_idx]))
+          return true;
+
+        else
+          return false;
+      }
+
+      else if(type == 'C') {
+        if(sign == '+') {
+          if(arg_idx >= 10 || !*arg[arg_idx])
+            return false; // broken mode-lock
+
+	  if(_param == NULL)
+	    return false;
+
+          if(!strcmp(_param, arg[arg_idx]))
+            return true;
+        }
+
+        else
+          return true;
+      }
+
+      else if(type == 'D')
+        return true;
+
+      else
+        return false; // unknown mode type
+    }
+
+    if(chanModeRequiresArgument(sign, arg[0][mode_idx]))
+      arg_idx++;
+  }
+
+  return false;
+}
+
+/** Will be executed when the bot has synched the channel and is opped.
+ * 
+ * \author patrick <patrick@psotnic.com>
+ */
+
+void chan::justSyncedAndOped()
+{
+    nextlimit=NOW+5; // wait for bots who ask for op
+
+    checkModelock();
+
+    if(chset->KEEPOUT)
+        checkKeepout();
+
+    checkList();
+}
+
+SentModes::entry::entry(char *m, char *a)
+{
+        mode[0]=m[0];
+        mode[1]=m[1];
+        mode[2]='\0';
+
+        if(a && *a)
+          mem_strcpy(arg, a);
+
+        else
+          arg=NULL;
+}
+
+SentModes::SentModes()
+{
+  data.removePtrs();
+}
+
+void SentModes::add(char *mode, char *arg)
+{
+  entry *e;
+
+  if(!mode || *mode == '\0')
+    return;
+
+  e=new entry(mode, arg);
+  data.add(e);
+}
+
+SentModes::entry *SentModes::find(char *mode, char *arg)
+{
+  ptrlist<entry>::iterator i;
+
+  if(!mode || *mode == '\0')
+    return NULL;
+
+  for(i=data.begin(); i; i++) {
+    if(!strncmp(i->mode, mode, 2) && (!arg || !strcmp(i->arg, arg)))
+      return i;
+  }
+
+  return NULL;
+}
+
+void SentModes::remove(char *mode, char *arg)
+{
+  entry *e;
+
+  e=find(mode, arg);
+
+  if(e)
+    data.remove(e);
+}
+
+/** detects if the list that stores bans, invites, exempts and reops is full.
+ * \author patrick <patrick@psotnic.com>
+
+  if yes, it will remove:
+    - all bans that are not sticky
+    - all dynamic invites (if dynamic-invites is enabled)
+    - all dynamic exempts (if dynamic-exempts is enabled)
+
+  this function uses set.MAX_CHANNEL_LIST_MODES because this
+  setting varies between IRCNet servers and all bots should
+  clear the list at the same time.
+*/
+
+void chan::listFullCheck()
+{
+  int listSize=0;
+  ptrlist<masklist_ent>::link *m;
+  bool isClean;
+  const int list_full_flag=8;
+
+  if(!banlistfull)
+  {
+    listSize += list[BAN].masks.entries();
+    listSize += list[INVITE].masks.entries();
+    listSize += list[EXEMPT].masks.entries();
+    listSize += list[REOP].masks.entries();
+
+
+    if(listSize >= set.MAX_CHANNEL_LIST_MODES)
+    {
+      banlistfull=true;
+  
+      if(chset->LOCKDOWN)
+      {
+        if(!hasFlag('i'))
+        {
+            // lock channel
+            if(!banlistfull_lock)
+            {
+                banlistfull_lock=true;
+  
+                if(myTurn(1, hash32(name)))
+                    net.irc.send("NOTICE %s :ban list is full, channel will be locked temporarily.", (const char *)name);
+            }
+  
+            if(myTurn(chset->GUARDIAN_BOTS, hash32(name)))
+            {
+                modeQ[PRIO_HIGH].add(NOW, "+i");
+                modeQ[PRIO_HIGH].flush(PRIO_HIGH);
+            }
+  
+            else
+                modeQ[PRIO_HIGH].addBackup(NOW+2, "+i");
+        }
+      }
+  
+      for(m=list[BAN].masks.begin(); m; m=m->next())
+      {
+        if(!(m->ptr()->expire))
+          continue;
+  
+        m->ptr()->flag|=list_full_flag;
+  
+        if(!modeQ[PRIO_LOW].find("-b ", m->ptr()->mask))
+        {
+          if(myTurn(1, hash32(m->ptr()->mask)))
+            modeQ[PRIO_LOW].add(NOW, "-b ", m->ptr()->mask);
+  
+          else
+            modeQ[PRIO_LOW].addBackup(NOW+20+(int)(120.0*rand()/(RAND_MAX+1.0)), "-b ", m->ptr()->mask);
+        }
+      }
+  
+      for(m=list[EXEMPT].masks.begin(); chset->DYNAMIC_EXEMPTS && m; m=m->next())
+      {
+        if(!(m->ptr()->expire))
+          continue;
+  
+        m->ptr()->flag|=list_full_flag;
+  
+        if(!modeQ[PRIO_LOW].find("-e ", m->ptr()->mask))
+        {
+          if(myTurn(1, hash32(m->ptr()->mask)))
+            modeQ[PRIO_LOW].add(NOW, "-e ", m->ptr()->mask);
+  
+          else
+            modeQ[PRIO_LOW].addBackup(NOW+20+(int)(120.0*rand()/(RAND_MAX+1.0)), "-e ", m->ptr()->mask);
+        }
+      }
+  
+      for(m=list[INVITE].masks.begin(); chset->DYNAMIC_INVITES && m; m=m->next())
+      {
+        if(!(m->ptr()->expire))
+          continue;
+  
+        m->ptr()->flag|=list_full_flag;
+  
+        if(!modeQ[PRIO_LOW].find("-I ", m->ptr()->mask))
+        {
+          if(myTurn(1, hash32(m->ptr()->mask)))
+            modeQ[PRIO_LOW].add(NOW, "-I ", m->ptr()->mask);
+  
+          else
+            modeQ[PRIO_LOW].addBackup(NOW+20+(int)(120.0*rand()/(RAND_MAX+1.0)), "-I ", m->ptr()->mask);
+        }
+      }
+    }
+  }
+
+  if(banlistfull)
+  {
+    isClean=listSize < set.MAX_CHANNEL_LIST_MODES ? true : false;
+
+    for(m=list[BAN].masks.begin(); isClean && m; m=m->next())
+    {
+      if(m->ptr()->flag & list_full_flag)
+        isClean=false;
+    }
+
+    for(m=list[EXEMPT].masks.begin(); isClean && chset->DYNAMIC_EXEMPTS && m; m=m->next())
+    {
+      if(m->ptr()->flag & list_full_flag)
+        isClean=false;
+    }
+
+    for(m=list[INVITE].masks.begin(); isClean && chset->DYNAMIC_INVITES && m; m=m->next())
+    {
+      if(m->ptr()->flag & list_full_flag)
+        isClean=false;
+    }
+
+    if(isClean)
+    {
+      if(chset->LOCKDOWN)
+      {
+        // open channel if list is clean and if it was locked by this function
+        if(banlistfull_lock && hasFlag('i'))
+        {
+          banlistfull_lock=false;
+
+          if(myTurn(chset->GUARDIAN_BOTS, hash32(name)))
+            modeQ[PRIO_LOW].add(NOW, "-i");
+
+          else
+            modeQ[PRIO_LOW].addBackup(NOW+2, "-i");
+        }
+      }
+
+      banlistfull=false;
+    }
+  }
 }

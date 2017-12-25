@@ -37,8 +37,8 @@
              after last change 
 */
 
-#include "../prots.h"
-#include "../global-var.h"
+#include <prots.h>
+#include <global-var.h>
 
 #include <regex.h>
 #include <stdarg.h>
@@ -316,12 +316,12 @@ bool Chans::print(const chanuser *u)
       str+=DELIM;
       if (str.size()+it->size()>SIZE)
         {
-          ME.privmsg(u->nick,str.c_str(),NULL);
+          ME.privmsg(u->nick, "%s", str.c_str());
 	  str.clear();
         }
       str+=*it;
     }
-  ME.privmsg(u->nick,str.c_str(),NULL);
+  ME.privmsg(u->nick, "%s", str.c_str());
   return true;
 }
 
@@ -410,7 +410,7 @@ void Peak::print(const chan *ch,const char *str,...)
   
   snprintf(msg,255,"\x02%s:\x02 %s",NAME,buf);
   
-  ME.privmsg(ch->name,msg,NULL);
+  ME.privmsg(ch->name, "%s", msg);
 }
 
 
@@ -423,7 +423,7 @@ void Peak::print(const chanuser *u,const char *str,...)
   vsnprintf(buf,256,str,args);
   va_end(args);
   
-  ME.privmsg(u->nick,buf,NULL);
+  ME.privmsg(u->nick, "%s", buf);
 }
 
 void Peak::print_help(const chanuser *u)
@@ -438,7 +438,7 @@ void Peak::print_about(const chan *ch)
   static char buf[256];
   
   snprintf(buf,256,"\x02%s\x02 module, version %s, programmed by %s",NAME,VERSION,AUTHOR);
-  ME.privmsg(ch->name,buf,NULL);
+  ME.privmsg(ch->name, "%s", buf);
 }
 
 void Peak::parsecmd(const chan *ch,const chanuser *u,const char *line,int gflag)

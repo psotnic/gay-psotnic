@@ -52,11 +52,11 @@ void parse_hub(char *data)
 					//unsigned char *dupa = ((entMD5Hash *) &config.currentHub->getPass())->getHash();
 
 					MD5HexHash(hash, arg[0], AUTHSTR_LEN, ((entMD5Hash *) &config.hub.getPass())->getHash(), 16);
-					net.hub.send(config.handle, " ", hash, NULL);
+					net.hub.send("%s %s", (const char*) config.handle, hash);
 
 					net.hub.tmpstr = (char *) malloc(AUTHSTR_LEN + 1);
 					MD5CreateAuthString(net.hub.tmpstr, AUTHSTR_LEN);
-					net.hub.send(net.hub.tmpstr, NULL);
+					net.hub.send("%s", net.hub.tmpstr);
                     return;
 				}
 				break;
@@ -81,7 +81,7 @@ void parse_hub(char *data)
 						else
 							strcpy(buf, "0");
 
-						net.hub.send(S_REGISTER, " ", S_VERSION, " ", buf, " ", (const char *) ME.nick, " ", net.irc.origin, NULL);
+						net.hub.send("%s %s %s %s %s", S_REGISTER, S_VERSION, buf, (const char *) ME.nick, net.irc.origin);
 						return;
 					}
 				}
@@ -100,9 +100,9 @@ void parse_hub(char *data)
 					net.hub.enableCrypt(((entMD5Hash *) &config.hub.getPass())->getHash(), 16);
 
 					net.sendBotListTo(&net.hub);
-					net.propagate(&net.hub, S_BJOIN, " ", net.hub.name, NULL);
+					net.propagate(&net.hub, "%s %s", S_BJOIN, net.hub.name);
 					config.currentHub->failures = 0;
-					net.propagate(NULL, S_CHNICK, " ", (const char *) ME.nick, " ", net.irc.origin, NULL);
+					net.propagate(NULL, "%s %s %s", S_CHNICK, (const char *) ME.nick, net.irc.origin);
 					return;
 				}
 			}
@@ -119,9 +119,9 @@ void parse_hub(char *data)
 	{
 		if(userlist.ulbuf)
 		{
-			net.send(HAS_N, "[!] Double UL download, this should not happen", NULL);
+			net.send(HAS_N, "\002Double UL download, this should not happen\002");
 			sleep(5);
-			net.send(HAS_N, "[!] Terminating.", NULL);
+			net.send(HAS_N, "\002Terminating.\002");
 			exit(1337);
 		}
 		userlist.ulbuf = new Pchar(64*1024);
@@ -131,8 +131,8 @@ void parse_hub(char *data)
 	{
 		if(!userlist.ulbuf)
 		{
-			net.send(HAS_N, "[!] Update userlist is empty", NULL);
-			net.send(HAS_N, "[-] Disconnecting", NULL);
+			net.send(HAS_N, "\002Update userlist is empty\002");
+			net.send(HAS_N, "[-] Disconnecting");
 			net.hub.close("Userlist is empty");
 			return;
 		}
@@ -157,14 +157,14 @@ void parse_hub(char *data)
 	{
 		if(ME.findChannel(arg[1]))
 		{
-			net.irc.send("PART ", arg[1], " :", (const char *) config.cyclereason, NULL);
+			net.irc.send("PART %s :%s", arg[1], !set.CYCLEREASON.isDefault() ? (const char *) set.CYCLEREASON : (const char *) set.PARTREASON);
 			ME.rejoin(arg[1], set.CYCLE_DELAY);
 
 			if(strlen(arg[2]))
-				net.send(HAS_N, "[*] Doing cycle on ", arg[1], NULL);
+				net.send(HAS_N, "Doing cycle on %s", arg[1]);
 
 		}
-		net.propagate(&net.hub, data, NULL);
+		net.propagate(&net.hub, "%s", data);
 		return;
 	}
 	if(!strcmp(arg[0], S_MKA) && strlen(arg[1]))
@@ -196,97 +196,34 @@ void parse_hub(char *data)
 		}
 		return;
 	}
-	if(!strcmp(arg[0], S_NICK) && strlen(arg[1]))
-	{
-		net.irc.send("NICK ", arg[1], NULL);
-		ME.nextNickCheck = NOW + set.KEEP_NICK_CHECK_DELAY;
-		return;
-	}
-	if(!strcmp(arg[0], S_JUMP) && strlen(arg[2]))
-	{
-		ME.jump(arg[2], arg[3], arg[1]);
-		return;
-	}
-#ifdef HAVE_IPV6
-	if(!strcmp(arg[0], S_JUMP6) && strlen(arg[2]))
-	{
-		ME.jump(arg[2], arg[3], arg[1], AF_INET6);
-		return;
-	}
-#endif
-	if(!strcmp(arg[0], S_JUMPS5) && strlen(arg[5]))
-	{
-		ME.jumps5(arg[2], atoi(arg[3]), arg[4], atoi(arg[5]), arg[1]);
-		return;
-	}
-
-	if(!strcmp(arg[0], S_RDIE) && strlen(arg[1]))
-	{
-		net.send(HAS_N, "[!] ", DIE_REASON, NULL);
-		net.irc.send("QUIT :", arg[1], " ", DIE_REASON2, NULL);
-		safeExit();
-	}
-	if(!strcmp(arg[0], S_NAMES) && strlen(arg[2]))
-	{
-		ch = ME.findChannel(arg[2]);
-		if(ch)
-			ch->names(arg[1]);
-		else net.sendOwner(arg[1], "Invalid channel", NULL);
-		return;
-	}
-
-	if(!strcmp(arg[0], S_CWHO) && strlen(arg[2]))
-	{
-		ch = ME.findChannel(arg[2]);
-		if(ch)
-			ch->cwho(arg[1], arg[3]);
-		else net.sendOwner(arg[1], "Invalid channel", NULL);
-		return;
-	}
-	if(!strcmp(arg[0], S_PSOTUPDATE))
-	{
-		psotget.forkAndGo(arg[1]);
-		return;
-	}
-	if(!strcmp(arg[0], S_STOPUPDATE))
-	{
-		psotget.end();
-		return;
-	}
-	if(!strcmp(arg[0], S_RESTART))
-	{
-		ME.restart();
-		return;
-	}
 	if(!strcmp(arg[0], S_ULSAVE))
 	{
 		userlist.save(config.userlist_file);
 		ME.nextRecheck = NOW + 5;
-		net.propagate(&net.hub, data, NULL);
+		net.propagate(&net.hub, "%s", data);
 		return;
 	}
 	if(!strcmp(arg[0], S_RJOIN) && strlen(arg[2]))
 	{
 		userlist.rjoin(arg[1], arg[2]);
-		net.propagate(&net.hub, data, NULL);
-		++userlist.SN;
+		net.propagate(&net.hub, "%s", data);
+		userlist.updated(false);
 		return;
 	}
 	if(!strcmp(arg[0], S_RPART) && strlen(arg[2]))
 	{
 		userlist.rpart(arg[1], arg[2], arg[3]);
-		net.propagate(&net.hub, data, NULL);
-		++userlist.SN;
-		return;
-	}
-	if(!strcmp(arg[0], S_STATUS) && strlen(arg[1]))
-	{
-		ME.sendStatus(arg[1]);
+		net.propagate(&net.hub, "%s", data);
+		userlist.updated();
 		return;
 	}
 	if(!strcmp(arg[0], S_CHKHOST) && strlen(arg[1]))
 	{
 		ME.checkMyHost(arg[1]);
+
+		if(updateNotify)
+			net.sendOwner(arg[1], "I have been updated and need to be restarted");
+
 		return;
 	}
 
@@ -294,31 +231,31 @@ void parse_hub(char *data)
 
 	if(userlist.parse(data))
 	{
-		++userlist.SN;
+		userlist.updated();
 
 		//some things should not be propagated
 		if(config.bottype == BOT_SLAVE)
 		{
 			if(!strcmp(S_ADDBOT, arg[0]))
 			{
-				net.propagate(&net.hub, S_ADDBOT, " ", arg[1], " ", arg[2], " ", arg[3], " ", S_SECRET, NULL);
+				net.propagate(&net.hub, "%s %s %s %s %s", S_ADDBOT, arg[1], arg[2], arg[3], S_SECRET);
 				return;
 			}
 			if(!strcmp(S_PASSWD, arg[0]) && userlist.isBot(arg[1]))
 			{
-				net.propagate(&net.hub, S_PASSWD, " ", arg[1], " ", "00000000000000000000000000000000", NULL);
+				net.propagate(&net.hub, "%s %s 00000000000000000000000000000000", S_PASSWD, arg[1]);
 				return;
 			}
 			if(!strcmp(S_ADDR, arg[0]) && userlist.isBot(arg[1]))
 			{
-				net.propagate(&net.hub, S_ADDR, " ", arg[1], " ", "0.0.0.0", NULL);
+				net.propagate(&net.hub, "%s %s %s", S_ADDR, arg[1], "0.0.0.0");
 				return;
 			}
 			if(!strcmp(S_ADDOFFENCE, arg[0])) // leaf dont need infos about offence-history
 				return;
 
 		}
-		net.propagate(&net.hub, data, NULL);
+		net.propagate(&net.hub, "%s", data);
 		return;
 	}
 }

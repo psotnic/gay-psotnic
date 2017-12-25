@@ -99,4 +99,39 @@ unsigned int adns::xorHash(const char *str)
 	return hash;
 }
 
+/** Clears dns cache.
+ * \author patrick <patrick@psotnic.com>
+ */
+
+void adns::clearCache()
+{
+    if(cache)
+        cache->clear();
+}
+
+/** Removes a hostname from dns cache.
+ * \author patrick <patrick@psotnic.com>
+ */
+
+bool adns::removeCache(const char *host)
+{
+    host2ip tmp(host);
+    ptrlist<host2ip>::iterator h = cache->find(tmp);
+
+    if(h)
+    {
+        cache->remove(h);
+        return true;
+    }
+
+    return false;
+}
+
+bool adns::isResolving(const char *host)
+{
+    if(todo->find(host))
+        return true;
+    else
+        return false;
+}
 #endif

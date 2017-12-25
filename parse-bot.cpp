@@ -1,6 +1,7 @@
 /***************************************************************************
  *   Copyright (C) 2003-2005 by Grzegorz Rusin                             *
  *   grusin@gmail.com                                                      *
+ *   Copyright (C) 2009-2010 psotnic.com development team                  *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
@@ -24,11 +25,18 @@
 static char arg[10][MAX_LEN];
 static char *reason;
 
+void emulateIRCDIntro(inetconn *c);
+
 void parse_bot(inetconn *c, char *data)
 {
 	reason = NULL;
 
-	if(!strlen(data)) return;
+	if(!c)
+		return;
+
+	if(!data || *data == '\0')
+		return;
+
 	str2words(arg[0], data, 10, MAX_LEN);
 
 	/* REGISTER CONNECTION */
@@ -38,48 +46,89 @@ void parse_bot(inetconn *c, char *data)
 		{
 			case 1:
 			{
-				if(!strcmp(arg[0], config.botnetword))
+				if(!strcmp(arg[0], config.botnetword) && c->listener_opt & (LISTEN_ALL | LISTEN_BOTS))
 				{
 					c->enableCrypt((const char *) config.botnetword, strlen(config.botnetword));
 					c->tmpstr = (char *) malloc(AUTHSTR_LEN + 1);
 					++c->tmpint;
 					MD5CreateAuthString(c->tmpstr, AUTHSTR_LEN);
 					c->tmpstr[32] = '\0';
-					c->send(c->tmpstr, NULL);
+					c->send("%s", c->tmpstr);
 					return;
 				}
 				
 				/* maybe that's owner */
-				if(config.bottype == BOT_MAIN && set.TELNET_OWNERS && MD5Validate(config.ownerpass, arg[0], strlen(arg[0])))
+				if(/*config.bottype == BOT_MAIN &&*/ c->listener_opt & (LISTEN_ALL | LISTEN_USERS))
 				{
-					c->status |= STATUS_CONNECTED | STATUS_PARTY | STATUS_TELNET;
-					c->status &= ~STATUS_BOT;
-					c->tmpint = 1;
-					c->killTime = NOW + set.AUTH_TIME;
-					if(creation)
-					{
-						c->send("Welcome ", c->getPeerIpName(), " to the constructor", NULL);
-						//c->echo(1);
-#ifdef HAVE_SSL
-						if(c->isSSL())
-							SSL_write(c->ssl, "new login: ", strlen("new login: "));
-						else
-#endif
-							write(c->fd, "new login: ", strlen("new login: "));
-					}
-					else
-					{
-						//c->echo(1);
-						c->send("Welcome ", c->getPeerIpName(), NULL);
-#ifdef HAVE_SSL
-						if(c->isSSL())
-							SSL_write(c->ssl, "login: ", strlen("login: "));
-						else
-#endif
-							write(c->fd, "login: ", strlen("login: "));
+					if(!strcmp(data, "CAP LS"))
+						return;
 
+					if(!strcmp(arg[0], "PASS") && strlen(arg[1]))
+					{
+						// it's an irc client
+						// format: PASS username:password
+						// -- patrick
+						char *ownerpass, *handle, *pass, *p;
+						HANDLE *h;
+
+						if(arg[1][0] == ':')
+							strcpy(arg[1], arg[1]+1);
+
+						if((ownerpass=strtok_r(arg[1], ":", &p))
+						   && (handle=strtok_r(NULL, ":", &p))
+						   && (pass=strtok_r(NULL, ":", &p)))
+						{
+						  if(config.checkOwnerpass(ownerpass))
+						  {
+							mem_strcpy(c->name, handle);
+
+							if ((h = userlist.checkPartylinePass(c->name, pass, HAS_P)))
+							{
+								if(!h->addr->match(c->getPeerIpName()))
+								{
+									reason = push(NULL, c->name, ": invalid ip", NULL);
+									break;
+								}
+
+								c->status |= STATUS_CONNECTED | STATUS_PARTY | STATUS_REGISTERED | STATUS_TELNET;
+								c->status &= ~STATUS_BOT;
+								c->tmpint = 0;
+								c->killTime = 0;
+								c->handle = h;
+								if (c->tmpstr) free(c->tmpstr);
+								c->tmpstr = NULL;
+								//c->echo(1);
+								emulateIRCDIntro(c);
+								c->status |= STATUS_IRCCLIENT;
+								sendLogo(c);
+								ignore.removeHit(c->getPeerIp4());
+								return;
+							}
+							else
+								reason = push(NULL, "invalid username or password", NULL);
+                                                  }
+					          else
+						    reason = push(NULL, "bad ownerpass", NULL);
+						}
+						else
+							reason = push(NULL, "invalid PASS (syntax error)", NULL);
+						break;
 					}
-					return;
+
+					if(config.checkOwnerpass(arg[0]))
+					{
+						c->status |= STATUS_CONNECTED | STATUS_PARTY | STATUS_TELNET;
+						c->status &= ~STATUS_BOT;
+						c->tmpint = 1;
+						c->killTime = NOW + set.AUTH_TIMEOUT;
+
+						c->send("");
+						c->send("Welcome %s", c->getPeerIpName());
+						c->send("");
+						c->send("Enter your login.");
+
+						return;
+					}
 				}
 				DEBUG(printf("[D] telnet creep: %s [%d]\n", arg[0], strlen(arg[0])));
 				reason = push(NULL, "telnet creep", NULL);
@@ -97,9 +146,10 @@ void parse_bot(inetconn *c, char *data)
 						reason = push(NULL,  arg[0], ": duplicate connection",NULL);
 						break;
 					}
-					if(h && config.bottype == BOT_MAIN && !userlist.isSlave(h))
+					// let leafs link to main -- patrick
+					if(h && config.bottype == BOT_MAIN && !userlist.isSlave(h) && !userlist.isLeaf(h))
 					{
-						reason = push(NULL, arg[0], ": not a slave", NULL);
+						reason = push(NULL, arg[0], ": neither a slave nor a leaf", NULL);
 						break;
 					}
 
@@ -127,7 +177,7 @@ void parse_bot(inetconn *c, char *data)
 
 						break;
 					}
-					if(!h->ip || peer.sin_addr.s_addr == h->ip)
+					if(!h->ip || peer.sin_addr.s_addr == h->ip || (h->addr->data.entries() && h->addr->match(c->getPeerIpName())))
 					{
    						if(MD5HexValidate(arg[1], c->tmpstr, strlen(c->tmpstr), h->pass, 16))
 						{
@@ -160,7 +210,7 @@ void parse_bot(inetconn *c, char *data)
 
 					++c->tmpint;
 					MD5HexHash(hash, arg[0], AUTHSTR_LEN, c->handle->pass, 16);
-					c->send(config.handle, " ", userlist.first->next->creation->print(), " ", hash, NULL);
+					c->send("%s %s %s", (const char *) config.handle, userlist.first->next->creation->print(), hash);
 					return;
 				}
 				reason = push(NULL, "This should not happen (2)", NULL);
@@ -171,10 +221,10 @@ void parse_bot(inetconn *c, char *data)
 				/* S_REGISTER <S_VERSION> <userlist.SN> [ircnick [irc server] ] */
 				if(!strcmp(arg[0], S_REGISTER) && strlen(arg[2]))
 				{
-					if(strcmp(arg[1], S_VERSION))
-					{
-						net.send(HAS_N, "[!] ", c->handle->name, " has different version: ", arg[1], NULL);
-					}
+					//if(strcmp(arg[1], S_VERSION))
+					//{
+					//	net.send(HAS_N, "[!] %s has different version: %s", c->handle->name, arg[1]);
+					//}
 
 					mem_strcpy(c->name, arg[3]);
 					mem_strcpy(c->origin, arg[4]);
@@ -183,26 +233,26 @@ void parse_bot(inetconn *c, char *data)
 					c->killTime = NOW + set.CONN_TIMEOUT;
 					c->lastPing = NOW;
 
-					c->send(S_REGISTER, " ", (const char *) ME.nick, NULL);
+					c->send("%s %s", S_REGISTER, (const char *) ME.nick);
 
 					c->enableCrypt(c->handle->pass, 16);
 
 					/* update ul */
 					if(userlist.SN != strtoull(arg[2], NULL, 10))
 					{
-						net.send(HAS_N, "[*] ", c->handle->name, " is linked (sending userlist)", NULL);
+						net.send(HAS_N, "%s is linked (sending userlist)", c->handle->name);
 						userlist.send(c);
 					}
-					else net.send(HAS_N, "[+] ", c->handle->name, " is linked and operational", NULL);
+					else net.send(HAS_N, "%s is linked and operational", c->handle->name);
 
 
 					/* send list of bots */
 					net.sendBotListTo(c);
-					net.propagate(c, S_BJOIN, " ", c->name, " ", c->origin, NULL);
+					net.propagate(c, "%s %s %s", S_BJOIN, c->name, c->origin);
 
 					/* check bot host */
 					if(config.bottype == BOT_MAIN)
-						c->send(S_CHKHOST, " *", NULL);
+						c->send("%s *", S_CHKHOST);
 
 					ignore.removeHit(c->getPeerIp4());
 					return;
@@ -235,8 +285,24 @@ void parse_bot(inetconn *c, char *data)
 	}
 	if(!strcmp(arg[0], S_ULOK))
 	{
-		net.send(HAS_N, "[+] ", c->handle->name, " is operational", NULL);
+		net.send(HAS_N, "%s is operational", c->handle->name);
 		return;
 	}
 	parse_botnet(c, data);
+}
+
+/** missing.
+ *
+ * \author patrick <patrick@psotnic.com>
+ */
+
+void emulateIRCDIntro(inetconn *c)
+{
+    c->sendRaw(":%s 001 %s :Welcome to the Internet Relay Network %s!%s@%s", (const char*)config.partyline_servername, (const char*)c->name, c->name, c->name, c->getPeerIpName());
+    c->sendRaw(":%s 002 %s :Your host is %s, running version %s", (const char*)config.partyline_servername, (const char*)c->name, S_BOTNAME, S_VERSION);
+    c->sendRaw(":%s 003 %s :This server was created ...", (const char*)config.partyline_servername, (const char*)c->name);
+    c->sendRaw(":%s 004 %s %s %s %s %s", (const char*)config.partyline_servername, (const char*)c->name, (const char*)config.partyline_servername, S_VERSION, "oirw", "abeIiklmnopqstv");
+    c->sendRaw(":%s 251 %s :There are 0 users and 0 invisible on 1 servers", (const char*)config.partyline_servername, (const char*)c->name);
+    c->sendRaw(":%s 255 %s :I have 0 clients, 0 services and 0 servers", (const char*)config.partyline_servername, (const char*)c->name);
+    c->sendRaw(":%s 422 %s :MOTD File is missing", (const char*)config.partyline_servername, (const char*)c->name);
 }

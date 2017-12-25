@@ -58,7 +58,7 @@ int fifo::flush(inetconn *c)
 	char *tmp = pop();
 	if(tmp)
 	{
-		c->send(tmp, NULL);
+		c->send("%s", tmp);
 		free(tmp);
 		lastFlush = NOW;
 		return 1;
@@ -68,32 +68,26 @@ int fifo::flush(inetconn *c)
 
 int fifo::wildWisePush(char *lst, ...)
 {
+	va_list list;
+	char buf[MAX_LEN];
+
 	if(!maxEnt || data.entries() <= maxEnt)
 	{
 		ptrlist<pstring<8> >::iterator p= data.begin();
 
-		va_list ap;
-		int len;
-		
-		va_start(ap, lst);
-		len = va_getlen(ap, lst);
-		va_end(ap);
-		char *str;
-		va_start(ap, lst);
-		str = va_push(NULL, ap, lst, len + 1);
-		va_end(ap);
+		va_start(list, lst);
+		vsnprintf(buf, MAX_LEN, lst, list);
+		va_end(list);
 
 		while(p)
 		{
-			if(::wildMatch(p.obj(), str))
-			{
-				free(str);
+			if(::wildMatch(p.obj(), buf))
 				return 0;
-			}
+
 			p++;
 		}
-		data.addLast(new pstring<8>(str));
-		free(str);
+
+		data.addLast(new pstring<8>(buf));
 		return 1;
 	}
 	return 0;
@@ -101,32 +95,26 @@ int fifo::wildWisePush(char *lst, ...)
 
 int fifo::wisePush(const char *lst, ...)
 {
+	va_list list;
+	char buf[MAX_LEN];
+
 	if(!maxEnt || data.entries() <= maxEnt)
 	{
 		ptrlist<pstring<8> >::iterator p = data.begin();
 
-		va_list ap;
-		int len;
-		va_start(ap, lst);
-		len = va_getlen(ap, lst);
-		va_end(ap);
-		char *str;
-		va_start(ap, lst);
-		str = va_push(NULL, ap, lst, len + 1);
-		va_end(ap);
+		va_start(list, lst);
+		vsnprintf(buf, MAX_LEN, lst, list);
+		va_end(list);
 
 		while(p)
 		{
-			if(!strcmp(p.obj(), str))
-			{
-				free(str);
+			if(!strcmp(p.obj(), buf))
 				return 0;
-			}
+
 			p++;
 		}
 
-		data.addLast(new pstring<8>(str));
-		free(str);
+		data.addLast(new pstring<8>(buf));
 		return 1;
 	}
 	return 0;
@@ -134,21 +122,16 @@ int fifo::wisePush(const char *lst, ...)
 
 int fifo::push(const char *lst, ...)
 {
+	char buf[MAX_LEN];
+	va_list list;
+
 	if(!maxEnt || data.entries() <= maxEnt)
 	{
-		va_list ap;
-		int len;
-		
-		va_start(ap, lst);
-		len = va_getlen(ap, lst);
-		va_end(ap);
+		va_start(list, lst);
+		vsnprintf(buf, MAX_LEN, lst, list);
+		va_end(list);
 
-		char *str;
-		va_start(ap, lst);
-		str = va_push(NULL, ap, lst, len + 1);
-		va_end(ap);
-		data.addLast(new pstring<8>(str));
-		free(str);
+		data.addLast(new pstring<8>(buf));
 		return 1;
 	}
 	else return 0;

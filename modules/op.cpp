@@ -1,5 +1,5 @@
-#include "../prots.h"
-#include "../global-var.h"
+#include <prots.h>
+#include <global-var.h>
 
 void hook_privmsg(const char *from, const char *to, const char *msg)
 {
@@ -27,9 +27,9 @@ void hook_privmsg(const char *from, const char *to, const char *msg)
 		}
 	    }
 	    else
-		ME.notice(from, "Sorry, but I am not oped", NULL);
+		ME.notice(from, "Sorry, but I am not oped");
 	}
-	else ME.notice(from, "I am not on that channel ;/", NULL);
+	else ME.notice(from, "I am not on that channel ;/");
     }
 }
 

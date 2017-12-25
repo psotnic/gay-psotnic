@@ -331,12 +331,14 @@ Plog::chanRecord *Plog::findLoggingChannel(const char *target)
 void Plog::loadConf()
 {
     FILE *fh;
-    char arg[10][MAX_LEN], buffer[MAX_LEN];
+    char arg[10][MAX_LEN], buffer[MAX_LEN], plog_conf[MAX_LEN];
     int line=0;
     options::event *e;
     chanRecord *logrec;
 
-    if(!(fh=fopen(PLOG_CONF, "r")))
+    snprintf(plog_conf, MAX_LEN, "%s%s", ETC_DIR, PLOG_CONF);
+
+    if(!(fh=fopen(plog_conf, "r")))
         return;
 
     while(fgets(buffer, MAX_LEN, fh))
@@ -366,7 +368,7 @@ void Plog::loadConf()
         }
 
         if(e && !e->ok)
-            printf("[-] %s:%d: %s\n", PLOG_CONF, line, (const char *) e->reason);
+            printf("[-] %s:%d: %s\n", plog_conf, line, (const char *) e->reason);
     }
 
     fclose(fh);
@@ -377,13 +379,16 @@ void Plog::loadConf()
 
 void Plog::saveConf()
 {
+    char plog_conf[MAX_LEN];
     FILE *fh;
     ptrlist<ent>::iterator i;
     ptrlist<chanRecord>::iterator logrec;
 
-    if(!(fh=fopen(PLOG_CONF, "w")))
+    snprintf(plog_conf, MAX_LEN, "%s%s", ETC_DIR, PLOG_CONF);
+
+    if(!(fh=fopen(plog_conf, "w")))
     {
-        net.send(HAS_N, PLOG_PARTYLINE_PREFIX, " Cannot open ", PLOG_CONF, " for writing: ", strerror(errno), NULL);
+        net.send(HAS_N, "%s Cannot open %s for writing: %s", PLOG_PARTYLINE_PREFIX, plog_conf, strerror(errno));
         nextSave=NOW+60; // try again later
         return;
     }
@@ -413,7 +418,7 @@ void Plog::saveConf()
 
     fclose(fh);
     nextSave=0;
-    net.send(HAS_N, PLOG_PARTYLINE_PREFIX, " Autosaving plog config.", NULL);
+    net.send(HAS_N, "%s Autosaving plog config.", PLOG_PARTYLINE_PREFIX);
 }
 
 void Plog::autoSaveConf()

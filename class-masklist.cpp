@@ -29,6 +29,7 @@ masklist_ent::masklist_ent(const char *m, const char *w, time_t t)
 	srand(NOW + ME.startedAt + getpid());
 	expire = t ? (NOW + t + (rand() % 600)) : 0;
 	sent = 0;
+	flag = 0;
 }
 
 masklist_ent::~masklist_ent()

@@ -334,6 +334,9 @@ const char *entHost::getValue() const
 
 void entHost::reset()
 {
+#ifdef HAVE_ADNS
+	resolve_pending = 0;
+#endif
 	ip = "0.0.0.0";
 	connectionString = "0.0.0.0";
 }
@@ -347,12 +350,33 @@ int entHost::getConnectionStringType(const char *str) const
 {
 	int type = 0;
 	const char *ptr = str;
+	bool search_prefix;
 
-	if(!strncmp(ptr, "ssl:", 4))
+	do
 	{
-		type |= use_ssl;
-		ptr += 4;
-	}
+		search_prefix=false;
+
+		if(!strncmp(ptr, "ssl:", 4))
+		{
+			type |= use_ssl;
+			ptr += 4;
+			search_prefix=true;
+		}
+
+		if(!strncmp(ptr, "ipv4:", 5))
+		{
+			type |= use_ipv4;
+			ptr += 5;
+			search_prefix=true;
+		}
+
+		if(!strncmp(ptr, "ipv6:", 5))
+		{
+			type |= use_ipv6;
+			ptr += 5;
+			search_prefix=true;
+		}
+	} while(search_prefix);
 
 	switch(isValidIp(ptr))
 	{
@@ -381,7 +405,7 @@ options::event *entHost::setValue(const char *arg1, const char *arg2, const bool
 		}
 
 		int type = getConnectionStringType(arg2);
-		int check = (type & typesAllowed) ^ type;
+		int check = (type & (typesAllowed)) ^ (type &~ (use_ipv4 | use_ipv6));
 
 		if(check != 0)
 		{
@@ -391,12 +415,23 @@ options::event *entHost::setValue(const char *arg1, const char *arg2, const bool
 		}		
 
 		const char *_arg = (type & use_ssl) ? arg2+4 : arg2;
+		if(type & use_ipv4)
+			_arg=_arg+5;
+		if(type & use_ipv6)
+			_arg=_arg+5;
 
 		if(type & (ipv4 | ipv6))
 		{
 			if(!justTest)
 			{
 				ip = _arg;
+
+				switch(isValidIp(_arg))
+				{
+					case 4 : ip4=_arg; break;
+					case 6 : ip6=_arg; break;
+				}
+
 				connectionString = arg2;
 			}		
 			_event.setOk(this, "%s has been set to %s", name, getValue());
@@ -404,30 +439,54 @@ options::event *entHost::setValue(const char *arg1, const char *arg2, const bool
 		}
 		else if(type & domain)
 		{
+			bool ok;
+#ifdef HAVE_ADNS
+			ok = true;
+#else
 			char buf[MAX_LEN];
-			bool ok = false;
-#ifdef HAVE_IPV6
-			if((typesAllowed & ipv6) && inet::gethostbyname(_arg, buf, AF_INET6))
+			ok = false;
+ #ifdef HAVE_IPV6
+			if((typesAllowed & ipv6) && !(type & use_ipv4) && inet::gethostbyname(_arg, buf, AF_INET6))
 				ok = true;
 			else
-#endif
-			if(!ok && (typesAllowed & ipv4) && inet::gethostbyname(_arg, buf, AF_INET))
+ #endif
+			if(!ok && !(type & use_ipv6) && (typesAllowed & ipv4) && inet::gethostbyname(_arg, buf, AF_INET))
 				ok = true;
-
+#endif
 			if(ok)
 			{
 				if(!justTest)
 				{
+#ifdef HAVE_ADNS
+					// dont resolve the hostname right here because:
+					// 1) the config file is parsed before the resolver is initialized
+					// 2) we probably dont need the ip now
+					// -- patrick
+
+					resolve_pending = 0;
+#else
 					ip = buf;
+					switch(isValidIp(buf))
+					{
+						case 4 : if(!(type & use_ipv6))
+							 	ip4=buf;
+							break;
+						case 6 : if(!(type & use_ipv4))
+								ip6=buf;
+							break;
+					}
+#endif
 					connectionString = arg2;
 				}
 
 				_event.setOk(this, "%s has been set to %s", name, getValue());
 			}
+#ifndef HAVE_ADNS
 			else if (errno)
 				_event.setError(this, "Unknown host: %s (%s)", _arg, hstrerror(errno));
 			else
 				_event.setError(this, "Unknown host: %s", _arg);
+#endif
 			return &_event;
 		}
 		else
@@ -443,6 +502,82 @@ options::event *entHost::setValue(const char *arg1, const char *arg2, const bool
 	}
 }
 
+#ifdef HAVE_ADNS
+/** Updates the ip address of an entHost entry.
+ * \author patrick <patrick@psotnic.com>
+ * \return 1 = resolved
+ *         0 = waiting
+ *        -1 = timed out
+ */
+
+int entHost::updateDnsEntry()
+{
+    int type=getConnectionStringType(connectionString);
+    const char *_arg=(const char*) connectionString;
+    adns::host2ip *info=NULL;
+
+    if(type & (ipv4 | ipv6))
+        return 1;
+
+    // strip prefixes like 'ssl:'
+    if(type & use_ssl)
+        _arg=_arg+4;
+    if(type & use_ipv4)
+        _arg=_arg+5;
+    if(type & use_ipv6)
+        _arg=_arg+5;
+
+    // check cache
+    info=resolver->getIp(_arg);
+
+    if(info) {
+        if(typesAllowed & ipv6 && !(type & use_ipv4) && *info->ip6)
+            ip6=info->ip6;
+
+        if(typesAllowed & ipv4 && !(type & use_ipv6) && *info->ip4)
+            ip4=info->ip4;
+
+	// obsolete
+        if(*ip6)
+            ip=ip6;
+        else if(*ip4)
+            ip=ip4;
+
+        resolve_pending=0;
+
+	if(!*ip4 && !*ip6) {
+            net.send(HAS_N, "Cannot resolve %s (%s)", _arg, (const char*) connectionString);    
+            return -1;
+        }
+
+        return 1;
+    }
+
+    else {
+        if(resolve_pending == 0) {
+            resolver->resolv(_arg);
+            resolve_pending=NOW;
+            return 0;
+        }
+
+        if(NOW - resolve_pending > 60) {
+            // timed out
+            net.send(HAS_N, "Cannot resolve %s (%s) [timed out]", _arg, (const char*) connectionString);
+            resolve_pending=0;
+            return -1;
+        }
+
+	if(resolve_pending && !resolver->isResolving(_arg)) {
+            // resolving failed
+            net.send(HAS_N, "Cannot resolve %s (%s)", _arg, (const char*) connectionString);
+            resolve_pending=0;
+            return -1;
+        }
+    }
+
+    return 0;
+}
+#endif
 entHost::operator unsigned int() const
 {
 	return inet_addr(ip);
@@ -591,6 +726,7 @@ options::event *entHPPH::_setValue(const char *arg1, const char *arg2, const cha
 			if(!e || !e->ok)
 				return e;
 		}
+
 		if(_handle)
 		{
 			e = _handle->set(arg5, 1);
@@ -898,6 +1034,40 @@ options::event *entServer::set(const char *ip, const char *port, const char *pas
 }
 
 /**
+ * entListener
+ */
+options::event *entListener::set(const char *_arg, const bool justTest)
+{
+        char arg[3][256];
+
+	if(!_arg || !*_arg)
+	{
+		_event.setError(this, "+listen <ip> <port> <all|users|bots>", name);
+		return &_event;
+	}
+
+        str2words(arg[0], _arg , 3, 256);
+
+	if(*arg[2])
+	{
+		if(strcmp(arg[2], "all") && strcmp(arg[2], "users") && strcmp(arg[2], "bots"))
+		{
+		        _event.setError(this, "last argument must be \"all\", \"users\" or \"bots\"", name);
+                        return &_event;
+		}
+
+		return _setValue(name, arg[0], arg[1], 0, arg[2], justTest);
+	}
+
+	else if(*arg[1])
+		return _setValue(name, arg[0], arg[1], 0, "all", justTest);
+
+	else
+		return _setValue(name, "0.0.0.0", arg[0], 0, "all", justTest);
+}
+
+
+/**
  * entLoadModules
  */
 //extern void registerAll(int (*_register)(const char *name, DLSYM_FUNCTION address));
@@ -963,7 +1133,12 @@ options::event *entLoadModules::_setValue(const char *arg1, const char *arg2, co
 
 		int fd;
 		unsigned char digest[16];
-		char digestHex[33];
+		char digestHex[33], path[MAX_LEN];
+
+		if(*arg2 == '/')
+			snprintf(path, MAX_LEN, "%s", arg2);
+		else
+			snprintf(path, MAX_LEN, "%s%s", MODULES_DIR, arg2);
 
 		if(md5)
 		{
@@ -971,26 +1146,26 @@ options::event *entLoadModules::_setValue(const char *arg1, const char *arg2, co
 
 			// avoid crashes on systems that allow to open() a directory -- patrick
 
-			if(stat(arg2, &statbuf) == 0)
+			if(stat(path, &statbuf) == 0)
 			{
 				if(!S_ISREG(statbuf.st_mode))
 				{
-					_event.setError(this, "cannot open %s: no regular file", arg2);
+					_event.setError(this, "cannot open %s: no regular file", path);
 					return &_event;
 				}
 			}
 
 			else
 			{
-				_event.setError(this, "cannot stat %s: %s", arg2, strerror(errno));
+				_event.setError(this, "cannot stat %s: %s", path, strerror(errno));
 				return &_event;
 			}
 
-			fd = open(arg2, O_RDONLY);
+			fd = open(path, O_RDONLY);
 
 			if(fd == -1)
 			{
-				_event.setError(this, "cannot open %s: %s", arg2, strerror(errno));
+				_event.setError(this, "cannot open %s: %s", path, strerror(errno));
 				close(fd);
 				return &_event;
 			}
@@ -1003,7 +1178,7 @@ options::event *entLoadModules::_setValue(const char *arg1, const char *arg2, co
 			{
 				if(strcmp(digestHex, arg3))
 				{
-					_event.setError(this, "cannot load %s: md5 signature missmatch", arg2);
+					_event.setError(this, "cannot load %s: md5 signature missmatch", path);
 					return &_event;
 				}
 			}
@@ -1011,14 +1186,13 @@ options::event *entLoadModules::_setValue(const char *arg1, const char *arg2, co
 		else
 			digestHex[0] = '\0';
 
-
 		//int (*_register)(const char *name, DLSYM_FUNCTION address);
 		module *(*init)();
-		void *handle = dlopen(arg2, RTLD_LAZY);
+		void *handle = dlopen(path, RTLD_LAZY);
 
 		if(!handle)
 		{
-			_event.setError(this, "error while loading %s: %s", arg2, dlerror());
+			_event.setError(this, "error while loading %s: %s", path, dlerror());
 			return &_event;
 		}
 
@@ -1032,7 +1206,7 @@ options::event *entLoadModules::_setValue(const char *arg1, const char *arg2, co
 		init = (module*(*)()) dlsym_cast(handle, "init");
 		if(!init)
 		{
-			_event.setError(this, "error while loading %s: %s", arg2, dlerror());
+			_event.setError(this, "error while loading %s: %s", path, dlerror());
 			return &_event;
 		}
 
@@ -1042,7 +1216,7 @@ options::event *entLoadModules::_setValue(const char *arg1, const char *arg2, co
 
 		if(!destroy)
 		{
-			_event.setError(this, "error while loading %s: %s", arg2, dlerror());
+			_event.setError(this, "error while loading %s: %s", path, dlerror());
 			return &_event;
 		}
 
@@ -1118,335 +1292,3 @@ bool entLoadModules::rehash(const char *str)
 //options::event *entLoadModules::_setValue(const char *arg1, const char *arg2, const char *arg3, bool justTest)
 //moved to modules.cpp
 
-/**
- * class entChattr
- */
-
-int entChattr::checkArg(const char *args)
-{
-	int i, j, k, c;
-	size_t s;
-	int star;
-	char *_l = NULL;
-	char *_k = NULL;
-
-	const char *modes = CHATTR_MODES;
-
-	static char duplicate[32];
-	static char arg[3][CHAN_LEN];
-
-	memset(gpFlags, 0, sizeof(gpFlags));
-	memset(gmFlags, 0, sizeof(gmFlags));
-	memset(gKey, 0, sizeof(gKey));
-	gLimit = 0;
-
-	memset(duplicate, 0, sizeof(duplicate));
-
-	str2words(arg[0], args, 3, CHAN_LEN);
-
-	for(k = 0, c = 0, i = 0, j = strlen(arg[0]), s = sizeof(duplicate); i < j && (unsigned) i < s-1; i++)
-	{
-		if(arg[0][i] == '-' || arg[0][i] == '+')
-			continue;
-		if(arg[0][i] == '*') 
-		{
-			if(!k)
-			{
-				k = 1;
-				continue;
-			}
-			return -7;
-		}
-		if(strchr(modes, arg[0][i]) == NULL)
-			return i;
-		else // duplicated modes check
-		{
-			if(strchr(duplicate, arg[0][i]) != NULL)
-				return -1;
-			duplicate[c++] = arg[0][i];
-		}
-	}
-
-	for(star = -1, i = 0, c = 1, j = strlen(arg[0]), s = 1; i < j; i++)
-	{
-		switch(arg[0][i])
-		{
-			case '-':
-				c = 0;
-				break;
-			case '+':
-				c = 1;
-				break;
-			case '*':
-				star = c;
-				break;
-			default:
-				setFlag(c, arg[0][i]);
-				if(c && (arg[0][i] == 'l' || arg[0][i] == 'k') && s < 3) 
-				{
-					switch(arg[0][i])
-					{
-						case 'l':
-							if(!strlen(arg[s])) return -3;
-							if(!_isnumber(arg[s])) return -4;
-							gLimit = atol(arg[s++]);
-							break;
-						case 'k':
-							k = strlen(arg[s]);
-							if(!k) return -5;
-							if(k > CHAN_LEN) return -6;
-
-							strcpy(gKey, arg[s++]);
-							break;
-					}
-				}
-		}
-	}
-
-	if(star != -1)
-	{
-		for(i = 0, s = 1,j = strlen(modes); i < j; i++)
-		{
-			if(strchr(duplicate, modes[i]) == NULL)
-			{
-				setFlag(star, modes[i]);
-				if(star && (modes[i] == 'l' || modes[i] == 'k') && s < 3) 
-				{
-					switch(modes[i])
-					{
-						case 'l':
-							if(!strlen(arg[s])) return -3;
-							if(!_isnumber(arg[s])) return -4;
-							gLimit = atol(arg[s++]);
-							break;
-						case 'k':
-							k = strlen(arg[s]);
-							if(!k) return -5;
-							if(k > CHAN_LEN) return -6;
-
-							strcpy(gKey, arg[s++]);
-							break;
-					}
-				}
-			}
-		}
-	}
-
-	if(*gpFlags)
-	{
-		// +s and +p cannot exist bothly
-		if(hasFlag(0, 'p', 1) && hasFlag(0, 's', 1))
-			return -2;
-		// darkman req. swaping limit with key when key isnt before limit
-		if(hasFlag(0, 'l', 1) && hasFlag(0, 'k', 1))
-		{
-			_l = strchr(gpFlags, 'l');
-			_k = strchr(gpFlags, 'k');
-			if(_k != NULL && _l != NULL) 
-			{
-				if(_l - _k > 0) // we need to swap those chars
-				{
-					i = (int) *_k;
-					*_k = *_l;
-					*_l = (char) i;
-				}
-			}
-		}
-	}
-	return -8;
-}
-
-void entChattr::setFlags()
-{
-	strncpy(pFlags, gpFlags, sizeof(pFlags)-1);
-	strncpy(mFlags, gmFlags, sizeof(mFlags)-1);
-	strcpy(Key, gKey);
-	Limit = gLimit;
-}
-
-bool entChattr::hasFlag(int minusFlag, const char flag, int Gen) const
-{
-	if(minusFlag)
-		return strchr(Gen ? gmFlags : mFlags, flag)==NULL ? false : true;
-        else
-		return strchr(Gen ? gpFlags : pFlags, flag)==NULL ? false : true;
-
-	return false;
-}
-
-void entChattr::setFlag(int plusFlag, const char flag)
-{
-	int len;
-
-	if(plusFlag)
-	{
-		if(strchr(CHATTR_MODES, flag))
-		{
-			len=strlen(gpFlags);
-			gpFlags[len]=flag;
-			gpFlags[len+1]='\0';
-		}
-
-		else
-			memset(gpFlags, 0, sizeof(gpFlags));
-	}
-
-	else
-	{
-		if(strchr(CHATTR_MODES, flag))
-		{
-			len=strlen(gmFlags);
-			gmFlags[len]=flag;
-			gmFlags[len+1]='\0';
-		}
-
-		else
-			memset(gmFlags, 0, sizeof(gmFlags));
-	}
-}
-
-const char *entChattr::getKey() const
-{
-	return Key;
-}
-
-long int entChattr::getLimit() const
-{
-	return Limit;
-}
-
-const char *entChattr::getValue() const
-{
-	static char modes[128];
-	int _l, _k;
-	char *l = NULL;
-	char *k = NULL;
-
-	memset(modes, 0, sizeof(modes));
-
-	if(*pFlags || *mFlags)
-	{
-		if(*pFlags)
-		{
-			snprintf(modes, sizeof(modes), "+%s", pFlags);
-			k = (char *) strchr(pFlags, 'k');
-			l = (char *) strchr(pFlags, 'l');
-		}
-		if(*mFlags)
-		{
-			strncat(modes, "-", sizeof(modes)-strlen(modes)-1);
-			strncat(modes, mFlags, sizeof(modes)-strlen(modes)-1);
-		}
-
-		// FIXME: we should use ltoa() instead of itoa()
-		if(k != NULL || l != NULL)
-		{
-			strncat(modes, " ", sizeof(modes)-strlen(modes)-1);
-			if(k != NULL && l != NULL)
-			{
-				_l = strlen(l);
-				_k = strlen(k);
-
-				if((_k - _l) > 0)
-				{
-					strncat(modes, Key, sizeof(modes)-strlen(modes)-1);
-					strncat(modes, " ", sizeof(modes)-strlen(modes)-1);
-					strncat(modes, itoa(Limit), sizeof(modes)-strlen(modes)-1);
-				}
-				else
-				{
-					strncat(modes, itoa(Limit), sizeof(modes)-strlen(modes)-1);
-					strncat(modes, " ", sizeof(modes)-strlen(modes)-1);
-					strncat(modes, Key, sizeof(modes)-strlen(modes)-1);
-				}
-			}
-			else
-			{
-				if(k != NULL)
-					strncat(modes, Key, sizeof(modes)-strlen(modes)-1);
-				if(l != NULL)
-					strncat(modes, itoa(Limit), sizeof(modes)-strlen(modes)-1);
-			}
-		}
-	}
-	else
-		strncpy(modes, "-", sizeof(modes)-1);
-
-	return modes;
-}
-
-options::event *entChattr::setValue(const char *arg1, const char *arg2, const bool justTest)
-{
-	if(!strcmp(arg1, name))
-	{
-		if(isReadOnly())
-		{
-			_event.setError(this, "entry %s is read-only", name);
-			return &_event;
-		}
-
-		int i = checkArg(arg2);
-		switch(i)
-		{
-			case -8: // all is ok
-				break;
-			case -7:
-				_event.setError(this, "argument cannot contain wildcard char more than once");
-				return &_event;
-			case -6:
-				_event.setError(this, "argument for key is too long");
-				return &_event;
-			case -5:
-				_event.setError(this, "argument for key has no length");
-				return &_event;
-			case -4: 
-				_event.setError(this, "argument for limit is not a number");
-				return &_event;
-			case -3:
-				_event.setError(this, "argument for limit has no lenght");
-				return &_event;
-			case -2: //
-				_event.setError(this, "conflict in argument: +s cannot exist with +p");
-				return &_event;
-			case -1:
-				_event.setError(this, "argument contain dulicated modes");
-				return &_event;
-			default:
-				_event.setError(this, "argument contain incorrect char at position %d", i+1);
-				return &_event;
-		}
-
-
-		setFlags();
-
-		if(!justTest)
-		{
-			// FIXME: should we set it twice?
-			setFlags();
-		}
-
-		_event.setOk(this, "%s has been set to %s", name, getValue());
-
-		return &_event;
-	}
-	else
-	{
-		_event.setError(this);
-		return NULL;
-	}
-}
-
-void entChattr::reset()
-{
-	strcpy(pFlags, dpFlags);
-	strcpy(mFlags, dmFlags); 
-	strcpy(Key, dKey);
-	Limit = dLimit;
-}
-
-bool entChattr::isDefault() const
-{
-	if(!strcmp(dmFlags, mFlags) && !strcmp(dpFlags, pFlags) && !strcmp(dKey, Key) && dLimit == Limit)
-		return 1;
-	return 0;
-}

@@ -31,8 +31,6 @@ void parse_irc(char *data)
 	if(!strlen(data))
 		return;
 
-	net.irc.killTime = NOW + set.CONN_TIMEOUT;
-
 	str2words(arg[0], data, 11, MAX_LEN, 1);
 
 	/* debug */
@@ -92,8 +90,7 @@ void parse_irc(char *data)
 					ME.createNewChannel(a);
 					if(!(userlist.chanlist[i].status & WHO_SENT))
 					{
-						net.irc.send("WHO ", a, NULL);
-						penalty+=2;
+						net.irc.send("WHO %s", a);
 					}
 				}
 				//if thats !channel maybe we have to change its name
@@ -109,20 +106,18 @@ void parse_irc(char *data)
 						ME.createNewChannel(a);
 						if(!(userlist.chanlist[i].status & WHO_SENT))
 						{
-							net.irc.send("WHO ", a, NULL);
-							penalty+=2;
+							net.irc.send("WHO %s", a);
 						}
 					}
 				}
 				else
 				{
-					net.irc.send("PART ", a, " :wtf?", NULL);
-					penalty += 3;
+					net.irc.send("PART %s :wtf?", a);
 				}
 			}
 			else
 			{
-				net.send(HAS_N, "\0039 >> Double join to ", a, " <<\003", NULL);
+				net.send(HAS_N, "\0039 >> Double join to %s <<\003", a);
 			}
 		}
 		else
@@ -132,7 +127,7 @@ void parse_irc(char *data)
 				ch->gotJoin(arg[0], netjoin ? NET_JOINED : 0);
 #ifdef HAVE_DEBUG
 			else if(!ME.findNotSyncedChannel(a))
-				net.send(HAS_N, "\0039 >>> Join observed to non exitsing channel ", a, "<<\003", NULL);
+				net.send(HAS_N, "\0039 >>> Join observed to non exitsing channel %s <<\003");
 #endif
 		}
 		return;
@@ -162,7 +157,7 @@ void parse_irc(char *data)
 			if(ch)
 				ch->buildAllowedOpsList(arg[0]);
 			ME.removeChannel(arg[2]);
-			ME.rejoin(arg[2], set.REJOIN_DELAY);
+			ME.rejoin(arg[2], set.REJOIN_AFTER_KICK_DELAY);
 		}
 		else
 		{
@@ -180,7 +175,6 @@ void parse_irc(char *data)
 		if(!strcasecmp(ME.mask, arg[0]))
 		{
 			ME.removeChannel(arg[2]);
-			penalty += 4;
 		}
 		else
 		{
@@ -231,13 +225,11 @@ void parse_irc(char *data)
 		if(ch)
 		{
 			if(ch->synced())
-			{
-				//net.send(HAS_N, "\0039[!] BUG, BUG >> Double WHO on ", (const char *) ch->name, " << BUG, BUG", NULL);
 				return;
-			}
+
 			if(!ch->users.entries())
 			{
-				net.send(HAS_N, "[D] Empty WHO RPL", NULL);
+				net.send(HAS_N, "[D] Empty WHO RPL");
 				bk;
 				return;
 			}
@@ -249,12 +241,6 @@ void parse_irc(char *data)
 				delete userlist.chanlist[ch->channum].allowedOps;
 				userlist.chanlist[ch->channum].allowedOps = NULL;
 			}
-			if(!ch->opedBots.entries())
-				userlist.chanlist[ch->channum].status &= ~SET_TOPIC;
-
-
-			HOOK(justSynced, justSynced(ch));
-			stopParsing=false;
 		}
 		return;
 	}
@@ -263,41 +249,31 @@ void parse_irc(char *data)
 		ch = ME.findChannel(arg[3]);
 		if(ch)
 		{
-			ch->limit = 0;
-			ch->updateKey("");
-			ch->setFlags(arg[4]);
-
+			//ch->limit = 0;
 			a = arg[4];
 
 			for(i=5; *a && i < 7; ++a)
 			{
-				switch(*a)
-				{
-					case 'l':
-						ch->limit = atol(arg[i++]);
-						break;
-					case 'k':
-						ch->updateKey(arg[i++]);
-						break;
-					default: break;
+				if(chan::chanModeRequiresArgument('+', *a)) {
+					ch->modes.insert(std::pair<char, string> (*a, arg[i]));
+					i++;
+				}
+
+				else
+					ch->modes.insert(std::pair<char, string> (*a, ""));
+
+                                if(*ch->key() && set.REMEMBER_OLD_KEYS) {
+                                        userlist.chanlist[ch->channum].pass=ch->key();
+                                        userlist.nextSave = NOW + SAVEDELAY;
 				}
 			}
 
 			++ch->synlevel;
-			if(ch->limit == -1)
+
+			if(ch->limit() == -1) // FIXME: when?
 				ch->nextlimit = -1;
 			else
 				ch->nextlimit = NOW + set.ASK_FOR_OP_DELAY;
-
-			/*
-			if(!ch->toKick.entries() && ch->opedBots.entries() + ch->botsToOp.entries() == 1 &&
-					!(ch->flags & (FLAG_N | FLAG_S | FLAG_T)))
-			{
-				ch->modeQ[PRIO_LOW].add(NOW, "+s");
-				ch->modeQ[PRIO_LOW].add(NOW, "+n");
-				ch->modeQ[PRIO_LOW].add(NOW, "+t");
-			}
-			*/
 		}
 		else DEBUG(printf("unknown 324 for %s\n", arg[3]));
 		return;
@@ -309,7 +285,26 @@ void parse_irc(char *data)
 	}
 	if(!strcmp(arg[0], "PING"))
 	{
-		net.irc.send("PONG ", arg[1], NULL);
+		net.irc.send("PONG %s", arg[1]);
+		return;
+	}
+	if(!strcmp(arg[1], "PONG"))
+	{
+		struct timeval tv_now;
+
+		if(!strcmp(arg[2], ME.server.name))
+		{
+			gettimeofday(&tv_now, NULL);
+			net.irc.lagcheck.lag = (int) get_timeval_diff(&tv_now, &net.irc.lagcheck.sent);
+			net.irc.lagcheck.inProgress = false;
+			net.irc.lagcheck.next = NOW + set.LAG_CHECK_TIME;
+
+			printf("lag: %f\n", net.irc.lagcheck.lag/1000.0); // TODO: rm
+		}
+	}
+	if(!strcmp(arg[0], "ERROR"))
+	{
+		net.irc.close(data+7);
 		return;
 	}
 	if(!strcmp(arg[1], "433"))
@@ -319,7 +314,7 @@ void parse_irc(char *data)
 		else
 		{
 			if(config.altnick.getLen() && !strcmp(arg[3], config.nick) && strcmp(arg[3], config.altnick))
-				net.irc.send("NICK ", (const char*) config.altnick, NULL);
+				net.irc.send("NICK %s", (const char*) config.altnick);
 			else
 				ME.registerWithNewNick(arg[3]);
 			sleep(1);
@@ -351,6 +346,7 @@ void parse_irc(char *data)
 	{
 		if(!(net.irc.status & STATUS_REGISTERED))
 		{
+			net.send(HAS_N, "\002Cannot register with nick %s (Erroneous Nickname)\002", arg[3]);
 			strncpy(arg[3], config.nick, MAX_LEN);
 			ME.registerWithNewNick(arg[3]);
 		}
@@ -369,7 +365,9 @@ void parse_irc(char *data)
 		ME.server.name=strdup(arg[0]);
 		mem_strcpy(net.irc.origin, arg[0]);
 		net.irc.status |= STATUS_REGISTERED;
-		net.irc.lastPing = NOW;
+		net.irc.killTime = 0;
+		net.irc.lagcheck.inProgress = false;
+		net.irc.lagcheck.next = NOW + set.LAG_CHECK_TIME;
 
 		if(match("*!*@*", arg[9]))
 		{
@@ -395,43 +393,28 @@ void parse_irc(char *data)
 			hostNotify = 0;
 			ME.nick = arg[2];
 			net.irc.status|=STATUS_NEED_WHOIS;
-			net.irc.send("WHOIS ", (const char*)ME.nick, NULL);
+			net.irc.send("WHOIS %s", (const char*)ME.nick);
 		}
 
 		srand();
 
-		net.propagate(NULL, S_CHNICK, " ", (const char *) ME.nick, " ", net.irc.name, NULL);
+		net.propagate(NULL, "%s %s %s", S_CHNICK, (const char *) ME.nick, net.irc.name);
 		if(strcmp(ME.nick, config.nick))
 			ME.nextNickCheck = NOW + set.KEEP_NICK_CHECK_DELAY;
 		else
 			ME.nextNickCheck = 0;
 
-		if(creation)
-		{
-			printf("[*] Please do `/msg %s mainowner <handle> <password>'\n", (const char *) ME.nick);
-			printf("[*] eg. `/msg %s mainowner %s foobar'\n", (const char *) ME.nick, getenv("USER"));
-		}
-		else
-			net.send(HAS_N, "[*] Connected to ", net.irc.name, " as ", (const char *) ME.nick, NULL);
+		net.send(HAS_N, "Connected to %s as %s", net.irc.name, (const char *) ME.nick);
 
-		if(antiidle.away)
-		{
-			net.irc.send("AWAY :", antiidle.away, NULL);
-			penalty = 4;
-		}
-		else penalty = 2;
+		penalty = 2;
 
 		if(!(net.irc.status&STATUS_NEED_WHOIS))
 			ME.checkMyHost("*", true);
 		ME.ircip.assign(net.irc.getPeerIpName(), strlen(net.irc.getPeerIpName()));
-		net.irc.send("stats L ", (const char *) ME.nick, NULL);
-		penalty += 2;
+		net.irc.send("stats L %s", (const char *) ME.nick);
 
-		if(!creation)
-		{
-			HOOK(connected, connected());
-			stopParsing=false;
-		}
+		HOOK(connected, connected());
+		stopParsing=false;
 
 		return;
 	}
@@ -443,15 +426,6 @@ void parse_irc(char *data)
 			ME.ircip.assign(at+1, strlen(at+1)-1);
 		return;
 	}
-
-	if(!strcmp(arg[1], "002"))
-	{
-		if(!strcmp(arg[9], "2.11") || match("2.11.*", arg[9]))
-			net.irc.status |= STATUS_211;
-
-		return;
-	}
-
 	if(!strcmp(arg[1], "004"))
 	{
 		ME.server.version=strdup(arg[4]);
@@ -494,7 +468,7 @@ void parse_irc(char *data)
 		ME.uid = arg[3];
 		return;
 	}
-	if(!strcmp(arg[1], "311") && net.irc.status&STATUS_NEED_WHOIS) // RPL_WHOISUSER
+	if(!strcmp(arg[1], "311") && net.irc.status & STATUS_NEED_WHOIS) // RPL_WHOISUSER
 	{
 		char buffer[MAX_LEN];
 		ME.ident = arg[4];
@@ -545,7 +519,7 @@ void parse_irc(char *data)
 		{
 			if(!(userlist.chanlist[i].status & JOIN_SENT) && userlist.isRjoined(i))
 			{
-				net.irc.send("JOIN ", arg[3], " ", (const char *) userlist.chanlist[i].pass, NULL);
+				net.irc.send("JOIN %s %s", arg[3], (const char *) userlist.chanlist[i].pass);
 				userlist.chanlist[i].status |= JOIN_SENT;
 			}
 		}
@@ -697,16 +671,17 @@ void parse_irc(char *data)
 			if((!strcmp(arg[3], "key") || !strcmp(arg[3], ".key") || !strcmp(arg[3], "!key")) && strlen(arg[5]))
 			{
 				ch = ME.findChannel(arg[5]);
-				if(ch && ch->key && *ch->key)
+				if(ch && ch->key() && *ch->key())
 				{
 					HANDLE *h = userlist.matchPassToHandle(arg[4], arg[0], 0);
+
 					if(h && (h->flags[MAX_CHANNELS] & HAS_F || h->flags[ch->channum] & HAS_F))
-						ctcp.push("NOTICE ", arg[0], " :", arg[5], "'s key: ", (const char *) ch->key, NULL);
+						ME.notice(arg[0], "%s's key: %s", arg[5], (const char *) ch->key());
 				}
 				return;
 			}
 			/* pass oldpass newpass */
-			if(config.bottype == BOT_MAIN && (!strcmp(arg[3], "pass") || !strcmp(arg[3], ".pass") || !strcmp(arg[3], "!pass")) && strlen(arg[4]))
+			if(set.ALLOW_SET_PASS_BY_MSG && (!strcmp(arg[3], "pass") || !strcmp(arg[3], ".pass") || !strcmp(arg[3], "!pass")) && strlen(arg[4]))
 			{
 				HANDLE *h;
 				if(strlen(arg[5])) // pass change
@@ -717,18 +692,21 @@ void parse_irc(char *data)
 					{
 						if(strlen(arg[5]) < 8)
 						{
-							ctcp.push("NOTICE ", arg[0], " :New password must be at least 8 characters long!", NULL);
+							ME.notice(arg[0], "New password must be at least 8 characters long!");
 						}
 						else
 						{
 							char buf[MAX_LEN];
-							userlist.changePass(h->name, arg[5]);
-							net.send(HAS_N, "[*] \002",(const char *) h->name, "\002 has changed his password", NULL);
-							net.send(HAS_B, S_PASSWD, " ", h->name, " ", quoteHexStr(h->pass, buf), NULL);
 
-							ctcp.push("NOTICE ", arg[0], " :Password changed", NULL);
-							++userlist.SN;
-							userlist.nextSave = NOW + SAVEDELAY;
+							if(config.bottype == BOT_MAIN)
+							{
+								userlist.changePass(h->name, arg[5]);
+								net.send(HAS_N, "%s has changed his password",(const char *) h->name);
+								net.send(HAS_B, "%s %s %s", S_PASSWD, h->name, quoteHexStr(h->pass, buf));
+
+								ME.notice(arg[0], "Password changed");
+								userlist.updated();
+							}
 						}
 					}
 					return;
@@ -740,73 +718,39 @@ void parse_irc(char *data)
 					{
 						if(strlen(arg[4]) < 8)
 						{
-							ctcp.push("NOTICE ", arg[0], " :Password must be at least 8 characters long!", NULL);
+							ME.notice(arg[0], "Password must be at least 8 characters long!");
 						}
 						else
 						{
 							char buf[MAX_LEN];
-							userlist.changePass(h->name, arg[4]);
-							net.send(HAS_N, "[*] \002",(const char *) h->name, "\002 has set his password", NULL);
-							net.send(HAS_B, S_PASSWD, " ", h->name, " ", quoteHexStr(h->pass, buf), NULL);
 
-							ctcp.push("NOTICE ", arg[0], " :Password set", NULL);
-							++userlist.SN;
-							userlist.nextSave = NOW + SAVEDELAY;
+							if(config.bottype == BOT_MAIN)
+							{
+								userlist.changePass(h->name, arg[4]);
+								net.send(HAS_N, "%s has set his password", (const char *) h->name);
+								net.send(HAS_B, "%s %s %s", S_PASSWD, h->name, quoteHexStr(h->pass, buf));
+
+								ME.notice(arg[0], "Password set");
+								userlist.updated();
+							}
+
+							else
+							{
+								unsigned char hash[16];
+								MD5Hash(hash, arg[4], strlen(arg[4]));
+								quoteHexStr(hash, buf, 16);
+
+								if(net.sendHub("%s %s %s", S_PASSWD, h->name, buf) == 1)
+									ME.notice(arg[0], "Password set");
+								else
+									ME.notice(arg[0], "I am not linked. Try again later.");
+							}
 						}
 					}
 					return;
 				}
 			}
 
-			/* chat */
-			if(config.bottype == BOT_MAIN && (!strcmp(arg[3], "chat") || !strcmp(arg[3], ".chat") || !strcmp(arg[3], "!chat")))
-			{
-				if(userlist.hasPartylineAccess(arg[0]))
-				{
-					snprintf(buf, MAX_LEN, ":\001DCC CHAT CHAT %d %d\001", inet_network(config.myipv4), (int) config.listenport);
-					ctcp.push("PRIVMSG ", arg[0], " ", buf, NULL);
-				}
-				return;
-			}
-
-			/* mainowner */
-			if(creation && !strcmp(arg[3], "mainowner") && strlen(arg[5]))
-			{
-				if(!strcmp(arg[4], "idiots"))
-				{
-					net.irc.send("PRIVMSG ", arg[0], " :Invalid handle", NULL);
-					return;
-				}
-				if(strlen(arg[5]) < 8)
-				{
-					net.irc.send("PRIVMSG ", arg[0], " :Password must be at least 8 characters long", NULL);
-					return;
-				}
-
-				HANDLE *h = userlist.addHandle(arg[4], 0, 0, 0, 0, arg[4]);
-				if(h)
-				{
-					sprintf(buf, "*%s", strchr(arg[0], '!'));
-					userlist.addHost(h, buf, arg[4], NOW);
-					userlist.changePass(arg[4], arg[5]);
-					userlist.changeFlags(arg[4], "aofmnstx", "");
-
-					net.irc.send("PRIVMSG ", arg[0], " :Account created", NULL);
-					printf("[*] Added user `%s' with host `%s' and password `%s'\n", arg[4], buf, arg[5]);
-					printf("[*] Now do `/chat %s' and supply owner pass from the config file and %s's password\n", (const char *) ME.nick, arg[4]);
-
-					++userlist.SN;
-					userlist.save(config.userlist_file);
-
-#ifdef HAVE_DEBUG
-					if(!debug)
-#endif
-						lurk();
-					creation = 0;
-					++userlist.SN;
-				}
-				return;
-			}
 		}
 
 		return;
@@ -861,12 +805,10 @@ void parse_irc(char *data)
 					++ch->synlevel;
 					ch->list[REOP].received=true;
 					return;
-				case ERR_NOSUCHNICK:
-					penalty -= 2;
-					return;
-				case ERR_NOSUCHCHANNEL:
-					penalty--;
-					return;
+				//case ERR_NOSUCHNICK:
+				//	return;
+				//case ERR_NOSUCHCHANNEL:
+				//	return;
 				default:
 					break;
 			}
@@ -878,7 +820,7 @@ void parse_irc(char *data)
 			if(userlist.findChannel(arg[3]) != -1)
 				ME.rejoin(arg[3], set.REJOIN_FAIL_DELAY);
 			//else if(chan::valid(arg[3]))
-			//	net.send(HAS_N, "[!] \002>> Strange server resposne: ", data, " <<\002", NULL);
+			//	net.send(HAS_N, "[!] >> Strange server response: %s <<", data);
 
 			srand();
 
@@ -887,30 +829,30 @@ void parse_irc(char *data)
 				//+i: S_INVITE <seed> <channel>
 				case ERR_INVITEONLYCHAN:
 				{
-					if(userlist.findChannel(arg[3]) != -1)
-						net.propagate(NULL, S_INVITE, " ", itoa(rand() % 2048), " ", arg[3], NULL);
+					if(userlist.findChannel(arg[3]) != -1 && !ME.waitForMyHost)
+						net.propagate(NULL, "%s %s %s", S_INVITE, itoa(rand() % 2048), arg[3]);
 					return;
 				}
 				//+b: S_UNBANME <seed> <nick!ident@host> <channel> [ip] [uid]
 				case ERR_BANNEDFROMCHAN:
 				{
-					if(userlist.findChannel(arg[3]) != -1)
-						net.propagate(NULL, S_UNBANME, " ", itoa(rand() % 2048), " ", (const char *) ME.mask,
-									  " ", arg[3],  " ", (const char *) ME.ircip, " ", (const char *) ME.uid, NULL);
+					if(userlist.findChannel(arg[3]) != -1 && !ME.waitForMyHost)
+						net.propagate(NULL, "%s %s %s %s %s %s", S_UNBANME, itoa(rand() % 2048), (const char *) ME.mask,
+									  arg[3],  (const char *) ME.ircip, (const char *) ME.uid);
 						return;
 				}
 				//+l: S_BIDLIMIT <seed> <channel>
 				case ERR_CHANNELISFULL:
 				{
-					if(userlist.findChannel(arg[3]) != -1)
-						net.propagate(NULL, S_BIDLIMIT, " ", itoa(rand() % 2048), " ", arg[3], NULL);
+					if(userlist.findChannel(arg[3]) != -1 && !ME.waitForMyHost)
+						net.propagate(NULL, "%s %s %s", S_BIDLIMIT, itoa(rand() % 2048), arg[3]);
 					return;
 				}
 				//+k: S_KEY <seed> <channel>
 				case ERR_BADCHANNELKEY:
 				{
-					if(userlist.findChannel(arg[3]) != -1)
-						net.propagate(NULL, S_KEY, " ", itoa(rand() % 2048), " ", arg[3], NULL);
+					if(userlist.findChannel(arg[3]) != -1 && !ME.waitForMyHost)
+						net.propagate(NULL, "%s %s %s", S_KEY, itoa(rand() % 2048), arg[3]);
 					return;
 				}
 				//k:lined
@@ -918,7 +860,10 @@ void parse_irc(char *data)
 				{
 					net.irc.status |= STATUS_KLINED;
 					mem_strcpy(net.irc.name, arg[0]);
+					a = srewind(data, 3);
+					net.send(HAS_N, "[-] I am K-lined on %s (%s)", net.irc.name, a+1);
 					a = srewind(data, 10);
+
 					if(a)
 						net.irc.close(a);
 					else

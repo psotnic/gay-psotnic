@@ -60,7 +60,7 @@ ign::entry *ign::hit(unsigned int ip)
 		if(++p->count > set.PERIP_BURST_SIZE && p->nextConn <= NOW)
 		{
 			p->nextConn = NOW + set.PERIP_IGNORE_TIME;
-			net.send(HAS_N, "[!] Ignoring ", inet2char(ntohl(ip)), " for ", itoa(set.PERIP_IGNORE_TIME), " seconds", NULL);
+			net.send(HAS_N, "\002Ignoring %s for %d seconds\002", inet2char(ntohl(ip)), (int) set.PERIP_IGNORE_TIME);
 		}
 		delete e;
 		e = p;
@@ -74,7 +74,7 @@ ign::entry *ign::hit(unsigned int ip)
 
 	if(count >= set.SYNFLOOD_MAX_CONNS && nextConn <= NOW)
 	{
-		net.send(HAS_N, "Synflood detected, not accepting conections for ", itoa(set.SYNFLOOD_IGNORE_TIME), " seconds", NULL);
+		net.send(HAS_N, "Synflood detected, not accepting conections for %d seconds", (int) set.SYNFLOOD_IGNORE_TIME);
 		nextConn = NOW + set.SYNFLOOD_IGNORE_TIME;
 	}
 

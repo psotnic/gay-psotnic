@@ -1,5 +1,5 @@
-#include "../prots.h"
-#include "../global-var.h"
+#include <prots.h>
+#include <global-var.h>
 
 void hook_privmsg(const char *from, const char *to, const char *msg)
 {
@@ -16,7 +16,7 @@ void hook_privmsg(const char *from, const char *to, const char *msg)
     	    if(u && u->flags & HAS_N)
 	    {
 		snprintf(buf, MAX_LEN, "%s: topic: %s\n", u->nick, (const char *) ch->topic);
-		ME.privmsg(ch->name, buf, NULL);
+		ME.privmsg(ch->name, "%s", buf);
 	    }
 	}
     }
@@ -29,11 +29,11 @@ void hook_privmsg(const char *from, const char *to, const char *msg)
 	    if(u && (u->flags & HAS_N) && (ch->me->flags & IS_OP))
 	    {
 		if(*ch->topic)
-		    net.irc.send("TOPIC ", (const char *) ch->name, " :", (const char*) ch->topic, NULL);
+		    net.irc.send("TOPIC %s :%s", (const char *) ch->name, (const char*) ch->topic);
 		else
 		{
 		    snprintf(buf, MAX_LEN, "%s: topic is not set", u->nick);
-	    	    ME.privmsg(ch->name, buf, NULL);
+	    	    ME.privmsg(ch->name, "%s", buf);
 		}
 	    }
 	}
@@ -115,7 +115,7 @@ void hook_botnetcmd(const char *from, const char *cmd)
     if(!strcmp(arg[1], "rkick"))
     {
         if(!strlen(arg[3]))
-	    net.sendOwner(arg[0], "Syntax: rkick <chan> <nick> [reason]", NULL);
+	    net.sendOwner(arg[0], "Syntax: rkick <chan> <nick> [reason]");
 	else
 	{
 	    chan *ch = ME.findChannel(arg[2]);
@@ -128,10 +128,10 @@ void hook_botnetcmd(const char *from, const char *cmd)
 			ch->toKick.sortAdd(u);
 		}
 		else
-		    net.sendOwner(arg[0], "Invalid nick", NULL);
+		    net.sendOwner(arg[0], "Invalid nick");
 	    }
 	    else
-	        net.sendOwner(arg[0], "Invalid channel", NULL);
+	        net.sendOwner(arg[0], "Invalid channel");
 	}
     }
 }
