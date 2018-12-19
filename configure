@@ -147,6 +147,9 @@ uptime
 vctrl
 words";
 
+use FindBin;
+use lib $FindBin::Bin;
+
 require 'tests/test.pm';
 chdir('tests');
 print "[*] Running system check (this may take a while)\n";
