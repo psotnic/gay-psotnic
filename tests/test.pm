@@ -148,7 +148,7 @@ sub getGccOptions
     tryCompile("${cc_prefix}g++", 'dlopen.c', '-ldl', '-lc', '-lm');
     tryCompile("${cc_prefix}g++", 'resolv.c', '-lresolv', '-lm');
     if(!$disable_ssl) {
-    	tryCompile("${cc_prefix}g++", 'ssl.c', '-lssl');
+    	tryCompile("${cc_prefix}g++", 'ssl.c', '-lssl -lcrypto');
     }
 
     #determine compiler options
@@ -185,7 +185,7 @@ sub getGccOptions
     	{
         	$ssl = 1;
         	$cflags .= "-DHAVE_SSL ";
-        	$lflags .= "-lssl ";
+        	$lflags .= "-lssl -lcrypto ";
     	}
     }
 	
