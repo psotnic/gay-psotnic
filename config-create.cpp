@@ -512,7 +512,7 @@ void createInitialConfig(bool expMode)
 	options::event *e;
 
 	printMessage( "Bot now runs in config creation mode" );
-	printMessage( "The options are explained at http://psotnic.wiki.sourceforge.net/Config+File" );
+	printMessage( "The options are explained at http://www.psotnic.com/documentation/config-file" );
 
     if(expMode)
     {
