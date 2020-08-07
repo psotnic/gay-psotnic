@@ -612,7 +612,7 @@ int main(int argc, char *argv[])
 				net.irc.killTime = NOW + set.AUTH_TIMEOUT;
 
 				if(net.irc.pass)
-					net.irc.send("PASS %s", (const char *) net.irc.pass);
+					net.irc.send("PASS %s 1", (const char *) net.irc.pass);
 
 				net.irc.send("NICK %s", (const char *) config.nick);
 				net.irc.send("USER %s  8 * :%s", (const char *) config.ident, (const char *) config.realname);
