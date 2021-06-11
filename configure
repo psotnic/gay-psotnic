@@ -441,7 +441,7 @@ foreach (@modules)
 {
 	print $f "$_:\n";
 	print $f "\t\@echo [*] Compiling module $_\n";
-	print $f "\t\@g++ -o $_.so $_.cpp -shared -I .. -I ../include\n\n";
+	print $f "\t\@g++ -o $_.so $_.cpp -shared -fPIC -I .. -I ../include\n\n";
 }
 
 print $f "clean:\n";
