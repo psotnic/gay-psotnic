@@ -201,11 +201,19 @@ int parse_botnet(inetconn *c, char *data)
 			p = ch->getUser(c->name);
 			if(p && (p->flags & HAS_B) && (set.GETOP_OP_CHECK ? !(p->flags & IS_OP) : 1))
 			{
-				if(!ch->modeQ[PRIO_HIGH].find("+o", p->nick))
-					ch->modeQ[PRIO_HIGH].add(NOW, "+o", p->nick);
+				int i;
+
+				if((i = userlist.findChannel(arg[1])) != -1 && userlist.isRjoined(i, c->handle))
+				{
+					if(!ch->modeQ[PRIO_HIGH].find("+o", p->nick))
+						ch->modeQ[PRIO_HIGH].add(NOW, "+o", p->nick);
+				}
+				else
+				{
+					net.send(HAS_N, "\002\0030,4Received illegal OP request from %s on %s - bot is not rjoined!\003\002", c->handle->name, arg[1]);
+				}
 				// ch->op(p); - changed 05.08.2010
 			}
-//printf("-> %d\n", penalty.val());
 		}
 		return 1;
 	}
