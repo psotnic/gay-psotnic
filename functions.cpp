@@ -550,7 +550,7 @@ void str2args(char *word, const char *str, int x, int y)
 		wystepujacy w tym slowie zostanie z ignorowany. podobnie dla znaku
 		END_CHAR_ARG. jezeli znak za nim nie istnieje, lub nie jest to spacja to
 		znaki END_CHAR_ARG w srodku sa ignorowane. 
-		przyk³ady:
+		przykï¿½ady:
 		str2args('cos "1 2"') = 'cos', '1 2'
 	        str2args('cos 1" 2"') = 'cos', '1"', '2"'
 		str2args('cos c"o"s" dupa') = 'cos', 'c"o"s"', 'dupa'
@@ -960,13 +960,8 @@ int acceptConnection(int fd, bool ssl, inet::listen_entry *le)
 
 				if(!silent)
 				{
-					char *peerip=strdup(c->getPeerIpName()), *myip=strdup(c->getMyIpName());
-
 					net.send(HAS_N, "Accepting connection from %s / %s to %s / %s",
-						peerip, c->getPeerPortName(), myip, c->getMyPortName());
-
-					free(peerip);
-					free(myip);
+                             c->getPeerIpName(), c->getPeerPortName(), c->getMyIpName(), c->getMyPortName());
 				}
 
 				return n;
@@ -978,13 +973,8 @@ int acceptConnection(int fd, bool ssl, inet::listen_entry *le)
 
 				if(!silent)
 				{
-					char *peerip=strdup(c->getPeerIpName()), *myip=strdup(c->getMyIpName());
-
 					net.send(HAS_N, "\002Rejecting connection from %s / %s to %s / %s\002",
-						peerip, c->getPeerPortName(), myip, c->getMyPortName());
-
-					free(peerip);
-					free(myip);
+                             c->getPeerIpName(), c->getPeerPortName(), c->getMyIpName(), c->getMyPortName());
 				}
 
 				DEBUG(printf("[!] Rejecting connection: %s / %s", c->getPeerIpName(), c->getPeerPortName()));
