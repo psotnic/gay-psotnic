@@ -99,7 +99,7 @@ partyline_commands partyline_cmds[] =
     { "+bot", pl_addbot, 2, "<handle> <ip>", true },
     { "-bot", pl_delbot, 1, "<handle>", true },
     { "mjoin", pl_mjoin, 1, "<chan> [key] [delay]", true },
-    { "rjoin", pl_rjoin, 2, "<chan> [key]", true },
+    { "rjoin", pl_rjoin, 2, "<bot> <chan> [key]", true },
     { "sjoin", pl_sjoin, 2, "<slave> <chan> [key]", true },
     { "mpart", pl_mpart, 1, "<chan>", true },
     { "rpart", pl_rpart, 2, "<bot> <chan>", true },
