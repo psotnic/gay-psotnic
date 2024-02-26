@@ -353,11 +353,11 @@ void chan::gotMode(const char *modes, const char *args, const char *mask)
 
             if (checkModeProtections)
             {
-                if (mode_type == 'B' && strcmp(oldParam, arg[i]))
+                if (mode_type == 'B' && oldParam && strcmp(oldParam, arg[i]))
                 {
                     if (chset->PROTECT_CHMODES && nickHandle != &serverHandle && !(nickHandle->flags & (HAS_N | HAS_B)))
                     {
-                        if (oldParam)
+                        if (oldParam && *oldParam)
                         {
                             snprintf(foo, 3, "+%c", mode[1][i]);
                             mqc[mq++] = modeQ[PRIO_HIGH].add(0, foo, oldParam);
@@ -390,11 +390,11 @@ void chan::gotMode(const char *modes, const char *args, const char *mask)
 
                 }
 
-                if (mode_type == 'C' && strcmp(oldParam, arg[i]))
+                if (mode_type == 'C' && oldParam && strcmp(oldParam, arg[i]))
                 {
                     if (chset->PROTECT_CHMODES && nickHandle != &serverHandle && !(nickHandle->flags & (HAS_N | HAS_B)))
                     {
-                        if (oldParam)
+                        if (oldParam && *oldParam)
                         {
                             snprintf(foo, 3, "+%c", mode[1][i]);
                             mqc[mq++] = modeQ[PRIO_HIGH].add(0, foo, oldParam);
