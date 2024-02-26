@@ -60,8 +60,14 @@ void parse_bot(inetconn *c, char *data)
 				/* maybe that's owner */
 				if(/*config.bottype == BOT_MAIN &&*/ c->listener_opt & (LISTEN_ALL | LISTEN_USERS))
 				{
-					if(!strcmp(data, "CAP LS"))
+					if(!strncmp(data, "CAP LS", 6))
 						return;
+
+					if(!strcmp(data, "JOIN :")) {
+						// irssi compatibility
+						c->sendRaw(":%s 451 * :You have not registered", (const char*)config.partyline_servername);
+						return;
+					}
 
 					if(!strcmp(arg[0], "PASS") && strlen(arg[1]))
 					{
