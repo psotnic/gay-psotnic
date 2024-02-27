@@ -239,7 +239,7 @@
 #define S_TIMESTAMP				"82"
 
 #define S_NOPERM				strerror(EACCES)
-#define S_VERSION				"0.1-pre (23-09-10)" 
+#define S_VERSION				"0.1.1 (26-02-24)"
 #define PATCHLEVEL				"000100"
 
 #define S_BOTNAME				"gay-psotnic"
