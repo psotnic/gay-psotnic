@@ -827,6 +827,11 @@ void parse_irc(char *data)
 				net.irc.send("AUTHENTICATE %s", encode_base64(auth_message_len, (unsigned char*) auth_message));
 				free(auth_message);
 			}
+			else if(config.sasl_mechanism == SASL_MECHANISM_EXTERNAL)
+			{
+				net.irc.send("AUTHENTICATE +");
+
+			}
 		}
 	}
 	if(!strcmp(arg[1], "903") )
