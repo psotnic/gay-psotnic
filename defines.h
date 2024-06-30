@@ -261,6 +261,8 @@
 #define VER_LUZIK		7
 #define VER_MIRC		8
 
+#define SASL_MECHANISM_PLAIN	1
+
 #ifdef HAVE_DEBUG
 	#define DEBUG(x)	if(debug) x
 #else

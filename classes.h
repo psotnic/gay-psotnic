@@ -815,6 +815,10 @@ class CONFIG : public options
 
 	entWord partyline_servername;
 
+	entInt sasl_mechanism;
+	entString sasl_username;
+	entString sasl_password;
+
 	int bottype;
 
 
