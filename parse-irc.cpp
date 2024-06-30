@@ -760,6 +760,7 @@ void parse_irc(char *data)
 		if(!strcmp(arg[3], "LS"))
 		{
 			char *cap_list, *cap, *p;
+			bool send_cap_end = true;
 			cap_list = srewind(data, 4) + 1;
 			DEBUG(printf("[*] Capabilities supported: %s\n", cap_list));
 
@@ -769,7 +770,14 @@ void parse_irc(char *data)
 					&& config.sasl_mechanism > 0 && config.sasl_username.getLen() && config.sasl_password.getLen())
 				{
 					net.irc.send("CAP REQ :sasl");
+					send_cap_end = false;
 				}
+			}
+
+			if(send_cap_end)
+			{
+				// No caps requested
+				net.irc.send("CAP END");
 			}
 		}
 		if(!strcmp(arg[3], "ACK"))
