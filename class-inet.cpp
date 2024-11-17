@@ -229,6 +229,11 @@ void inet::sendOwner(const char *who, const char *lst, ...)
 
 	if(!who) return;
 
+	va_start(list, lst);
+	vsnprintf(buf, MAX_LEN, lst, list);
+	va_end(list);
+	DEBUG(printf("sendOwner[%s]: %s\n", who, buf));
+
 	if(config.bottype != BOT_MAIN)
 	{
 		HANDLE *h;
@@ -249,11 +254,8 @@ void inet::sendOwner(const char *who, const char *lst, ...)
 
 				if(c)
 				{
-					va_start(list, lst);
-					vsnprintf(buf, MAX_LEN, lst, list);
-					va_end(list);
-	
 					c->send("%s %s %s %s", S_OREDIR, userlist.first->next->name, who, buf);
+                    DEBUG(printf("sendOwner[%s]: %s\n", who, buf));
 				}
 			}
 			h = h->next;
@@ -264,10 +266,6 @@ void inet::sendOwner(const char *who, const char *lst, ...)
 		for(int i=0; i<max_conns; ++i)
 			if(conn[i].isRegOwner() && match(who, net.conn[i].handle->name))
 			{
-				va_start(list, lst);
-				vsnprintf(buf, MAX_LEN, lst, list);
-				va_end(list);
-
 				conn[i].send("%s", buf);
 			}
 	//}
