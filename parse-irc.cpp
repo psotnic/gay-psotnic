@@ -20,11 +20,13 @@
 
 #include "prots.h"
 #include "global-var.h"
+#include "scram.h"
 
 static char arg[11][MAX_LEN], *a, buf[MAX_LEN];
 static chan *ch;
 static chanuser *p;
 static int i;
+static Scram* m_pScram;
 
 void parse_irc(char *data)
 {
@@ -795,6 +797,31 @@ void parse_irc(char *data)
 					{
 						net.irc.send("AUTHENTICATE PLAIN");
 					}
+					if (config.sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_1
+						|| config.sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_256
+						|| config.sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_512)
+					{
+						std::string mechanism;
+
+						switch (config.sasl_mechanism)
+						{
+							case SASL_MECHANISM_SCRAM_SHA_1 : mechanism = "SCRAM-SHA-1"; break;
+							case SASL_MECHANISM_SCRAM_SHA_256 : mechanism = "SCRAM-SHA-256"; break;
+							case SASL_MECHANISM_SCRAM_SHA_512 : mechanism = "SCRAM-SHA-512"; break;
+						}
+
+						delete m_pScram;
+
+						try {
+							m_pScram = new Scram(mechanism);
+						} catch (const std::string& s) {
+							m_pScram = nullptr;
+							net.send(HAS_N, "[-] Could not create SCRAM session: %s", s);
+							net.irc.send("QUIT :changing servers");
+						}
+
+						net.irc.send("AUTHENTICATE %s", mechanism.c_str());
+					}
 
 					send_cap_end = false;
 				}
@@ -832,6 +859,12 @@ void parse_irc(char *data)
 			{
 				net.irc.send("AUTHENTICATE +");
 			}
+		}
+		if (m_pScram != nullptr && (config.sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_1 ||
+								 config.sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_256 ||
+								 config.sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_512))
+		{
+			m_pScram->authenticate(std::string(arg[1]));
 		}
 	}
 	if(!strcmp(arg[1], "903") )

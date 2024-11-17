@@ -9,71 +9,71 @@ all: badrealname ads control date dccchat noautorejoin nogarbage oidentd op peak
 
 badrealname:
 	@echo [*] Compiling module badrealname
-	@g++ -o badrealname.so badrealname.cpp -shared -I .. -I ../include
+	@g++ -o badrealname.so badrealname.cpp -shared -fPIC -I .. -I ../include
 
 ads:
 	@echo [*] Compiling module ads
-	@g++ -o ads.so ads.cpp -shared -I .. -I ../include
+	@g++ -o ads.so ads.cpp -shared -fPIC -I .. -I ../include
 
 control:
 	@echo [*] Compiling module control
-	@g++ -o control.so control.cpp -shared -I .. -I ../include
+	@g++ -o control.so control.cpp -shared -fPIC -I .. -I ../include
 
 date:
 	@echo [*] Compiling module date
-	@g++ -o date.so date.cpp -shared -I .. -I ../include
+	@g++ -o date.so date.cpp -shared -fPIC -I .. -I ../include
 
 dccchat:
 	@echo [*] Compiling module dccchat
-	@g++ -o dccchat.so dccchat.cpp -shared -I .. -I ../include
+	@g++ -o dccchat.so dccchat.cpp -shared -fPIC -I .. -I ../include
 
 noautorejoin:
 	@echo [*] Compiling module noautorejoin
-	@g++ -o noautorejoin.so noautorejoin.cpp -shared -I .. -I ../include
+	@g++ -o noautorejoin.so noautorejoin.cpp -shared -fPIC -I .. -I ../include
 
 nogarbage:
 	@echo [*] Compiling module nogarbage
-	@g++ -o nogarbage.so nogarbage.cpp -shared -I .. -I ../include
+	@g++ -o nogarbage.so nogarbage.cpp -shared -fPIC -I .. -I ../include
 
 oidentd:
 	@echo [*] Compiling module oidentd
-	@g++ -o oidentd.so oidentd.cpp -shared -I .. -I ../include
+	@g++ -o oidentd.so oidentd.cpp -shared -fPIC -I .. -I ../include
 
 op:
 	@echo [*] Compiling module op
-	@g++ -o op.so op.cpp -shared -I .. -I ../include
+	@g++ -o op.so op.cpp -shared -fPIC -I .. -I ../include
 
 peak:
 	@echo [*] Compiling module peak
-	@g++ -o peak.so peak.cpp -shared -I .. -I ../include
+	@g++ -o peak.so peak.cpp -shared -fPIC -I .. -I ../include
 
 peak2:
 	@echo [*] Compiling module peak2
-	@g++ -o peak2.so peak2.cpp -shared -I .. -I ../include
+	@g++ -o peak2.so peak2.cpp -shared -fPIC -I .. -I ../include
 
 repeat:
 	@echo [*] Compiling module repeat
-	@g++ -o repeat.so repeat.cpp -shared -I .. -I ../include
+	@g++ -o repeat.so repeat.cpp -shared -fPIC -I .. -I ../include
 
 spam:
 	@echo [*] Compiling module spam
-	@g++ -o spam.so spam.cpp -shared -I .. -I ../include
+	@g++ -o spam.so spam.cpp -shared -fPIC -I .. -I ../include
 
 topic:
 	@echo [*] Compiling module topic
-	@g++ -o topic.so topic.cpp -shared -I .. -I ../include
+	@g++ -o topic.so topic.cpp -shared -fPIC -I .. -I ../include
 
 uptime:
 	@echo [*] Compiling module uptime
-	@g++ -o uptime.so uptime.cpp -shared -I .. -I ../include
+	@g++ -o uptime.so uptime.cpp -shared -fPIC -I .. -I ../include
 
 vctrl:
 	@echo [*] Compiling module vctrl
-	@g++ -o vctrl.so vctrl.cpp -shared -I .. -I ../include
+	@g++ -o vctrl.so vctrl.cpp -shared -fPIC -I .. -I ../include
 
 words:
 	@echo [*] Compiling module words
-	@g++ -o words.so words.cpp -shared -I .. -I ../include
+	@g++ -o words.so words.cpp -shared -fPIC -I .. -I ../include
 
 clean:
 	@echo [*] Cleaning up
