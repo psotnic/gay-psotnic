@@ -596,6 +596,7 @@ int main(int argc, char *argv[])
 			net.irc.SSLHandshake();
 			if(net.irc.status & STATUS_CONNECTED)
 			{
+				net.irc.send("CAP LS");
 				net.irc.send("NICK %s", (const char *) config.nick);
 				net.irc.send("USER %s 8 * :", (const char *) config.ident, (const char *) config.realname);
 				
@@ -614,6 +615,7 @@ int main(int argc, char *argv[])
 				if(net.irc.pass)
 					net.irc.send("PASS %s 1", (const char *) net.irc.pass);
 
+				net.irc.send("CAP LS");
 				net.irc.send("NICK %s", (const char *) config.nick);
 				net.irc.send("USER %s  8 * :%s", (const char *) config.ident, (const char *) config.realname);
 			}

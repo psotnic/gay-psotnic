@@ -1141,3 +1141,15 @@ void client::quit(const char *reason)
     if(net.irc.fd > 0)
         net.irc.send("QUIT :%s", reason ? reason : (const char *) set.QUITREASON);
 }
+
+void client::sendAuthentication(const char *lst, ...)
+{
+	va_list list;
+	char buffer[MAX_LEN];
+
+	va_start(list, lst);
+	vsnprintf(buffer, MAX_LEN, lst, list);
+	va_end(list);
+
+	net.irc.send("AUTHENTICATE %s", buffer);
+}

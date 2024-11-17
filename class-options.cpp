@@ -496,6 +496,9 @@ CONFIG::CONFIG()
 	registerObject(check_ban_on_nick_change = entBool("check-ban-on-nick-change", 0));
 	registerObject(save_userlist = entBool("save-userlist", 0));
 	registerObject(partyline_servername = entWord("partyline-servername", 1, 255, "psotnic.com"));
+	registerObject(sasl_mechanism = entInt("sasl-mechanism", 0, 5, 0));
+	registerObject(sasl_username = entString("sasl-username", 1, 255));
+	registerObject(sasl_password = entString("sasl-password", 1, 255));
 }
 
 void CONFIG::polish()

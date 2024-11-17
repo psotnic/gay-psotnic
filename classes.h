@@ -815,6 +815,10 @@ class CONFIG : public options
 
 	entWord partyline_servername;
 
+	entInt sasl_mechanism;
+	entString sasl_username;
+	entString sasl_password;
+
 	int bottype;
 
 
@@ -1062,6 +1066,7 @@ class client
 	void privmsg(const char *target, const char *lst, ...);
 	void notice(const char *target, const char *lst, ...);
 	void quit(const char *reason=NULL);
+	void sendAuthentication(const char *lst, ...);
 
 	/* Debug */
 #ifdef HAVE_DEBUG
