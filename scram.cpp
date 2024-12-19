@@ -50,8 +50,9 @@ Scram::Scram(std::string mechanism)
 
 	if (this->digest == nullptr)
 	{
-		net.send(HAS_N, "Unknown message digest: (%s)", digestName);
-		return;
+		std::string errorMessage = "Unknown message digest: " + digestName;
+		net.send(HAS_N, errorMessage.c_str());
+		throw std::invalid_argument(errorMessage);
 	}
 
 	this->digestSize = EVP_MD_size(this->digest);

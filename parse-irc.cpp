@@ -814,9 +814,10 @@ void parse_irc(char *data)
 
 						try {
 							m_pScram = new Scram(mechanism);
-						} catch (const std::string& s) {
+						}
+						catch (const std::invalid_argument& e) {
 							m_pScram = nullptr;
-							net.send(HAS_N, "[-] Could not create SCRAM session: %s", s);
+							net.send(HAS_N, "[-] Could not create SCRAM session: %s", e.what());
 							net.irc.send("QUIT :changing servers");
 						}
 

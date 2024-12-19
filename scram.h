@@ -38,7 +38,7 @@ private:
 	std::string clientNonceB64;
 	std::string clientFirstMessageBare;
 	std::string authMessage;
-	unsigned char* saltedPassword;
+	unsigned char *saltedPassword;
 	unsigned int step = 0;
 
 	int createSHA(const unsigned char *input, size_t uInputLen,
