@@ -1,9 +1,11 @@
-// tries to make sure that the topic does not get lost
+/* 
+ * Saves the current topic in a file and sets it again periodically (default: every 2 days).
+ */
 
 #include <prots.h>
 #include <global-var.h>
 
-#define TOPIC_SET_DELAY 28800
+#define TOPIC_SET_DELAY 172800
 #define TOPIC_FILE "topics.txt"
 
 chan *__findChannel(const char *);
