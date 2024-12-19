@@ -7,42 +7,42 @@ use Getopt::Long;
 our ($antiptrace, $noircbacktrace, $ssl, $disable_ssl, $disable_modules, $little_endian, $big_endian, $cc_prefix, $cc_options, $ld_options, $disable_adns, $firedns, $prefix, $bindir, $includesdir, $modulesdir, $confdir, $help);
 
 if(!GetOptions(
-        "--with-antiptrace" => \$antiptrace,
-        "--no-irc-backtrace" => \$noircbacktrace,
-        "--little-endian" => \$little_endian,
-        "--big-endian" => \$big_endian,
-        "--cc-prefix:s" => \$cc_prefix,
-        "--cc-options:s" => \$cc_options,
-        "--ld-options:s" => \$ld_options,
-        "--disable-adns" => \$disable_adns,
-        "--with-ssl" => \$ssl,
-        "--disable-ssl" => \$disable_ssl,
-        "--with-firedns" => \$firedns,
-        "--disable-modules" => \$disable_modules,
-        "--prefix:s" => \$prefix,
-        "--help" => \$help))
+	"--with-antiptrace" => \$antiptrace,
+	"--no-irc-backtrace" => \$noircbacktrace,
+	"--little-endian" => \$little_endian,
+	"--big-endian" => \$big_endian,
+	"--cc-prefix:s" => \$cc_prefix,
+	"--cc-options:s" => \$cc_options,
+	"--ld-options:s" => \$ld_options,
+	"--disable-adns" => \$disable_adns,
+	"--with-ssl" => \$ssl,
+	"--disable-ssl" => \$disable_ssl,
+	"--with-firedns" => \$firedns,
+	"--disable-modules" => \$disable_modules,
+	"--prefix:s" => \$prefix,
+	"--help" => \$help))
 {
-        exit();
+	exit();
 }
 
 if($help)
 {
-        print "Help\n";
+	print "Help\n";
 
-        print "  --with-antiptrace \tEnable antiptrace\n";
-        print "  --no-irc-backtrace\tDisable irc backtrace generation\n";
-        print "  --little-endian   \tForce little endian\n";
-        print "  --big-endian      \tForce big endian\n";
-        print "  --cc-prefix       \tChange the compiler prefix\n";
-        print "  --cc-options      \tAppend additional compiler options\n";
-        print "  --ld-options      \tAppend additional linker options\n";
-        print "  --disable-adns    \tDisable the Asynchronous DNS resolver\n";
-        print "  --with-ssl        \tEnable SSL support\n";
-        print "  --disable-ssl     \tDisable SSL support\n";
-        print "  --with-firedns    \tEnable the FireDNS resolver\n";
-        print "  --disable-modules \tDisable module support\n";
-        print "  --prefix          \tPrefix for the installation and search paths            [".$ENV{'HOME'} . "/gay-psotnic]\n";
-        exit;
+	print "  --with-antiptrace \tEnable antiptrace\n";
+	print "  --no-irc-backtrace\tDisable irc backtrace generation\n";
+	print "  --little-endian   \tForce little endian\n";
+	print "  --big-endian      \tForce big endian\n";
+	print "  --cc-prefix       \tChange the compiler prefix\n";
+	print "  --cc-options      \tAppend additional compiler options\n";
+	print "  --ld-options      \tAppend additional linker options\n";
+	print "  --disable-adns    \tDisable the Asynchronous DNS resolver\n";
+	print "  --with-ssl        \tEnable SSL support\n";
+	print "  --disable-ssl     \tDisable SSL support\n";
+	print "  --with-firedns    \tEnable the FireDNS resolver\n";
+	print "  --disable-modules \tDisable module support\n";
+	print "  --prefix          \tPrefix for the installation and search paths            [".$ENV{'HOME'} . "/gay-psotnic]\n";
+	exit;
 }
 
 my %targets;
@@ -164,41 +164,41 @@ chdir('..');
 
 if($antiptrace)
 {
-        print "[+] Enabling antiptrace\n";
-        $cflags .= "-DHAVE_ANTIPTRACE ";
+	print "[+] Enabling antiptrace\n";
+	$cflags .= "-DHAVE_ANTIPTRACE ";
 }
 else
 {
-        print "[-] Disabling antiptrace (pass --with-antiptrace to enable)\n";
+	print "[-] Disabling antiptrace (pass --with-antiptrace to enable)\n";
 }
 
 if($noircbacktrace)
 {
-        print "[-] Disabling irc backtrace\n";
+	print "[-] Disabling irc backtrace\n";
 }
 else
 {
-        print "[+] Enabling irc backtrace (pass --no-irc-backtrace to disable)\n";
-        $cflags .= "-DHAVE_IRC_BACKTRACE ";
+	print "[+] Enabling irc backtrace (pass --no-irc-backtrace to disable)\n";
+	$cflags .= "-DHAVE_IRC_BACKTRACE ";
 }
 
 if($ssl && !$disable_ssl)
 {
-        print "[+] Enabling SSL support\n";
-        print "    Please read INSTALL and follow the instructions!\n";
+	print "[+] Enabling SSL support\n";
+	print "    Please read INSTALL and follow the instructions!\n";
 }
 else
 {
-        print "[-] Disabling SSL support\n";
+	print "[-] Disabling SSL support\n";
 }
 
 if($disable_modules)
 {
-        print "[-] Disabling module support\n";
+	print "[-] Disabling module support\n";
 }
 else
 {
-        $cflags .= "-DHAVE_MODULES ";
+	$cflags .= "-DHAVE_MODULES ";
 }
 
 print "[*] Compile options: $cflags\n";
@@ -226,19 +226,19 @@ $ver =~ s/\n//;
 my ($out, $binname);
 if($os =~ /cygwin/i)
 {
-        $out = "bin/psotnic.exe";
-        $binname = "psotnic.exe";
+	$out = "bin/psotnic.exe";
+	$binname = "psotnic.exe";
 
-        if($cflags =~/-DHAVE_IPV6/)
-        {
-                $cflags .= "-Dsocklen_t=int -fpermissive ";
-        }
-        $cflags .= "-DHAVE_CYGWIN ";
+	if($cflags =~/-DHAVE_IPV6/)
+	{
+		$cflags .= "-Dsocklen_t=int -fpermissive ";
+	}
+	$cflags .= "-DHAVE_CYGWIN ";
 }
 else
 {
-        $out = "bin/psotnic";
-        $binname = "psotnic";
+	$out = "bin/psotnic";
+	$binname = "psotnic";
 }
 
 #
@@ -373,49 +373,49 @@ my ($t, @tmp);
 
 foreach $t (keys %targets)
 {
-        $f = new FileHandle "> Makefile.$t" or die "[-] Cannot create Makefile.$t";
-        print "[+] Generating Makefile.$t\n";
-        print $f "#########################################\n";
-        print $f "# Code generated by configure\n";
-        print $f "#\n";
-        print $f "# Copyright (c) 2003-2005 Grzegorz Rusin <grusin\@gmail.com>\n";
-        print $f "# WARNING! All changes made in this file will be lost!\n";
-        print $f "# \n\n";
+	$f = new FileHandle "> Makefile.$t" or die "[-] Cannot create Makefile.$t";
+	print "[+] Generating Makefile.$t\n";
+	print $f "#########################################\n";
+	print $f "# Code generated by configure\n";
+	print $f "#\n";
+	print $f "# Copyright (c) 2003-2005 Grzegorz Rusin <grusin\@gmail.com>\n";
+	print $f "# WARNING! All changes made in this file will be lost!\n";
+	print $f "# \n\n";
 
-        print $f ".SUFFIXES: .o .c .cpp\n\n";
-        print $f ".c.o:\n";
-        print $f "\t\@echo [*] Compiling \$<\n";
-        print $f "\t\@${cc_prefix}g++ -c \$< $targets{$t} $cflags\n\n";
+	print $f ".SUFFIXES: .o .c .cpp\n\n";
+	print $f ".c.o:\n";
+	print $f "\t\@echo [*] Compiling \$<\n";
+	print $f "\t\@${cc_prefix}g++ -c \$< $targets{$t} $cflags\n\n";
 
-        print $f ".cpp.o:\n";
-        print $f "\t\@echo [*] Compiling \$<\n";
-        print $f "\t\@${cc_prefix}g++ -c \$< $targets{$t} $cflags\n\n";
+	print $f ".cpp.o:\n";
+	print $f "\t\@echo [*] Compiling \$<\n";
+	print $f "\t\@${cc_prefix}g++ -c \$< $targets{$t} $cflags\n\n";
 
-        print $f ".cc.o:\n";
-        print $f "\t\@echo [*] Compiling \$<\n";
-        print $f "\t\@${cc_prefix}g++ -c \$< $targets{$t} $cflags\n\n";
+	print $f ".cc.o:\n";
+	print $f "\t\@echo [*] Compiling \$<\n";
+	print $f "\t\@${cc_prefix}g++ -c \$< $targets{$t} $cflags\n\n";
 
-        print $f "tar: $filelist\n";
-        print $f "\t\@echo [*] Linking\n";
-        print $f "\t\@test -d bin || mkdir bin\n"; # workaround: git doesn't track empty dirs
+	print $f "tar: $filelist\n";
+	print $f "\t\@echo [*] Linking\n";
+	print $f "\t\@test -d bin || mkdir bin\n"; # workaround: git doesn't track empty dirs
 
-        if($t =~ /debug|dynamic/)
-        {
-                print $f "\t\@${cc_prefix}g++ $filelist -o $out $targets{$t} $cflags $lflags -export-dynamic\n";
-        }
-        else
-        {
-                print $f "\t\@${cc_prefix}g++ $filelist -o $out $targets{$t} $cflags $lflags\n";
-        }
+	if($t =~ /debug|dynamic/)
+	{
+		print $f "\t\@${cc_prefix}g++ $filelist -o $out $targets{$t} $cflags $lflags -export-dynamic\n";
+	}
+	else
+	{
+		print $f "\t\@${cc_prefix}g++ $filelist -o $out $targets{$t} $cflags $lflags\n";
+	}
 
-        if(!($t =~ /debug/))
-        {
-                print $f "\t\@echo [*] Striping debug information\n";
-                print $f "\t\@${cc_prefix}strip $out\n";
-        }
+	if(!($t =~ /debug/))
+	{
+		print $f "\t\@echo [*] Striping debug information\n";
+		print $f "\t\@${cc_prefix}strip $out\n";
+	}
 
-        print $f "\t\@echo [*] We are done\n";
-        $f->close;
+	print $f "\t\@echo [*] We are done\n";
+	$f->close;
 }
 
 #
@@ -435,15 +435,15 @@ my @modules = split /\n/, $moduleList;
 print $f "all:";
 foreach (@modules)
 {
-        print $f " $_";
+	print $f " $_";
 }
 print $f "\n\n";
 
 foreach (@modules)
 {
-        print $f "$_:\n";
-        print $f "\t\@echo [*] Compiling module $_\n";
-        print $f "\t\@g++ -o $_.so $_.cpp -shared -fPIC -I .. -I ../include\n\n";
+	print $f "$_:\n";
+	print $f "\t\@echo [*] Compiling module $_\n";
+	print $f "\t\@g++ -o $_.so $_.cpp -shared -fPIC -I .. -I ../include\n\n";
 }
 
 print $f "clean:\n";
@@ -475,47 +475,47 @@ $f->close();
 
 if(-f "seed.h")
 {
-        print "[!] Random seed (seed.h) exists, using existing one.\n";
+	print "[!] Random seed (seed.h) exists, using existing one.\n";
 }
 else
 {
-        $f = new FileHandle "> seed.h";
-        if(defined $f)
-        {
-                print "[+] Generating seed.h\n";
-                print $f "/*\n";
-                print $f " * This file contains magical seeds that will be used during encryption/decryption process.\n";
-                print $f " * So make sure that you store it in safe place, if you loose it you wont be able to decode\n";
-                print $f " * crypted files.\n";
-                print $f " */\n\n";
-                print $f "#ifndef PSOTNIC_SEED_H\n";
-                print $f "#define PSOTNIC_SEED_H 1\n\n";
+	$f = new FileHandle "> seed.h";
+	if(defined $f)
+	{
+		print "[+] Generating seed.h\n";
+		print $f "/*\n";
+		print $f " * This file contains magical seeds that will be used during encryption/decryption process.\n";
+		print $f " * So make sure that you store it in safe place, if you loose it you wont be able to decode\n";
+		print $f " * crypted files.\n";
+		print $f " */\n\n";
+		print $f "#ifndef PSOTNIC_SEED_H\n";
+		print $f "#define PSOTNIC_SEED_H 1\n\n";
 
-                my $cfg_seed = "";
-                my $ul_seed = "";
+		my $cfg_seed = "";
+		my $ul_seed = "";
 
-                for($i=0; $i<16; ++$i)
-                {
-                        $cfg_seed .= sprintf("\\x%02x", rand(256));
-                }
+		for($i=0; $i<16; ++$i)
+		{
+			$cfg_seed .= sprintf("\\x%02x", rand(256));
+		}
 
-                for($i=0; $i<16; ++$i)
-                {
-                        $ul_seed .= sprintf("\\x%02x", rand(256));
-                }
+		for($i=0; $i<16; ++$i)
+		{
+			$ul_seed .= sprintf("\\x%02x", rand(256));
+		}
 
-                print $f "static unsigned char cfg_seed[] = \"$cfg_seed\";\n";
-                print $f "static unsigned char ul_seed[] = \"$ul_seed\";\n\n";
-                print $f "#endif\n";
+		print $f "static unsigned char cfg_seed[] = \"$cfg_seed\";\n";
+		print $f "static unsigned char ul_seed[] = \"$ul_seed\";\n\n";
+		print $f "#endif\n";
 
-                print "[*] Random seeds for all binaries are located in seed.h\n";
-                print "[*] Please backup seed.h when you finish compilation\n";
-        }
-        else
-        {
-                print "FATAL: Cannot create seed.h\n";
-                die;
-        }
+		print "[*] Random seeds for all binaries are located in seed.h\n";
+		print "[*] Please backup seed.h when you finish compilation\n";
+	}
+	else
+	{
+		print "FATAL: Cannot create seed.h\n";
+		die;
+	}
 }
 
 
@@ -530,17 +530,17 @@ my $svn_rev = check_svn_revision($svn_entries);
 
 if($svn_rev == 'UNKNOWN')
 {
-        my $currDir = `pwd`;
+	my $currDir = `pwd`;
 
-        if($currDir =~ /.*\/\.update-[0-9]*$/)
-        {
-                $svn_entries = `ls psotnic-*/.svn/entries`;
-                $svn_entries =~ s/\n//;
-                if($svn_entries =~ /entries/)
-                {
-                        $svn_rev = check_svn_revision($svn_entries);
-                }
-        }
+	if($currDir =~ /.*\/\.update-[0-9]*$/)
+	{
+		$svn_entries = `ls psotnic-*/.svn/entries`;
+		$svn_entries =~ s/\n//;
+		if($svn_entries =~ /entries/)
+		{
+			$svn_rev = check_svn_revision($svn_entries);
+		}
+	}
 }
 
 $cflags .= "-DSVN_REVISION=\"$svn_rev\"";
@@ -553,66 +553,66 @@ print "[+] Done; Source Code Revision = $svn_rev\n";
 $f = new FileHandle "> config.h";
 if(defined $f)
 {
-        print "[+] Generating config.h\n";
-        print $f "#ifndef PSOTNIC_CONFIG_H\n";
-        print $f "#define PSOTNIC_CONFIG_H 1\n\n";
+	print "[+] Generating config.h\n";
+	print $f "#ifndef PSOTNIC_CONFIG_H\n";
+	print $f "#define PSOTNIC_CONFIG_H 1\n\n";
 
-        my @arr = split(/ /, $cflags);
-        my $tmp;
+	my @arr = split(/ /, $cflags);
+	my $tmp;
 
-        foreach(@arr)
-        {
-                if (my ($key, $value) = /(?:-D)(.*?)=(.*)/) {
-                        $value =~ s/\\\"//g;
-                        print $f "#ifndef $key\n";
-                        print $f "\t#define $key $value\n";
-                        print $f "#endif\n\n";
-                }
-                elsif(/(-D)(.*)/) {
-                        print $f "#ifndef $2\n";
-                        print $f "\t#define $2 1\n";
-                        print $f "#endif\n\n";
-                }
-        }
-        print $f "\n#endif\n";
-        $f->close;
+	foreach(@arr)
+	{
+		if (my ($key, $value) = /(?:-D)(.*?)=(.*)/) {
+			$value =~ s/\\\"//g;
+			print $f "#ifndef $key\n";
+			print $f "\t#define $key $value\n";
+			print $f "#endif\n\n";
+		}
+		elsif(/(-D)(.*)/) {
+			print $f "#ifndef $2\n";
+			print $f "\t#define $2 1\n";
+			print $f "#endif\n\n";
+		}
+	}
+	print $f "\n#endif\n";
+	$f->close;
 }
 
 # checks if a path is set and sets it to a given default if not. also ensures that the path ends with a /
 sub check_path
 {
-        my $path = shift;
-        my $default = shift;
-        if(!$path)
-        {
-                $path = $default;
-        }
-        if($path !~ m/\/$/)
-        {
-                $path .= "/";
-        }
-        $path =~ s/\/\//\//g; # replace "//" by one
-        return $path;
+	my $path = shift;
+	my $default = shift;
+	if(!$path)
+	{
+		$path = $default;
+	}
+	if($path !~ m/\/$/)
+	{
+		$path .= "/";
+	}
+	$path =~ s/\/\//\//g; # replace "//" by one
+	return $path;
 }
 
 sub check_svn_revision
 {
-        my $f = shift;
+	my $f = shift;
 
-        my $x = `head -n 4 $f | tail -n 1 2>/dev/null`;
-        $x =~ s/\n//;
-        if(!($x =~ /^\d+$/))
-        {
-                $x = `head -n 4 $f | tail -1 2>/dev/null`;
-                $x =~ s/\n//;
-        }
+	my $x = `head -n 4 $f | tail -n 1 2>/dev/null`;
+	$x =~ s/\n//;
+	if(!($x =~ /^\d+$/))
+	{
+		$x = `head -n 4 $f | tail -1 2>/dev/null`;
+		$x =~ s/\n//;
+	}
 
-        if(!($x =~ /^\d+$/))
-        {
-                $x = 'UNKNOWN';
-        }
+	if(!($x =~ /^\d+$/))
+	{
+		$x = 'UNKNOWN';
+	}
 
-        return $x;
+	return $x;
 }
 
 print "[+] Configuration finished, you may now run \"make\"\n";
