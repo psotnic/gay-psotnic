@@ -255,7 +255,7 @@ void inet::sendOwner(const char *who, const char *lst, ...)
 				if(c)
 				{
 					c->send("%s %s %s %s", S_OREDIR, userlist.first->next->name, who, buf);
-                    DEBUG(printf("sendOwner[%s]: %s\n", who, buf));
+					DEBUG(printf("sendOwner[%s]: %s\n", who, buf));
 				}
 			}
 			h = h->next;
