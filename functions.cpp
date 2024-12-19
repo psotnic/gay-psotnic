@@ -1863,9 +1863,9 @@ bool searchDecAndSeedH()
                 net.send(HAS_N, "\002Please remove %s%s\002", INSTALL_PREFIX, dirptr->d_name);
                 ret=true;
             }
-
-	    closedir(dirptr);
         }
+
+		closedir(dir);
     }
 
     // search for an installation directory that contains seed.h
@@ -1889,9 +1889,9 @@ bool searchDecAndSeedH()
                     }
                 }
             }
-
-	    closedir(dirptr);
         }
+
+		closedir(dir);
     }
 
     return ret;
