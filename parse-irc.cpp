@@ -26,7 +26,7 @@ static char arg[11][MAX_LEN], *a, buf[MAX_LEN];
 static chan *ch;
 static chanuser *p;
 static int i;
-static Scram* m_pScram;
+static Scram* scram;
 
 void parse_irc(char *data)
 {
@@ -810,13 +810,13 @@ void parse_irc(char *data)
 							case SASL_MECHANISM_SCRAM_SHA_512 : mechanism = "SCRAM-SHA-512"; break;
 						}
 
-						delete m_pScram;
+						delete scram;
 
 						try {
-							m_pScram = new Scram(mechanism);
+							scram = new Scram(mechanism);
 						}
 						catch (const std::invalid_argument& e) {
-							m_pScram = nullptr;
+							scram = nullptr;
 							net.send(HAS_N, "[-] Could not create SCRAM session: %s", e.what());
 							net.irc.send("QUIT :changing servers");
 						}
@@ -861,11 +861,11 @@ void parse_irc(char *data)
 				net.irc.send("AUTHENTICATE +");
 			}
 		}
-		if (m_pScram != nullptr && (config.sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_1 ||
+		if (scram != nullptr && (config.sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_1 ||
 								 config.sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_256 ||
 								 config.sasl_mechanism == SASL_MECHANISM_SCRAM_SHA_512))
 		{
-			m_pScram->authenticate(std::string(arg[1]));
+			scram->authenticate(std::string(arg[1]));
 		}
 	}
 	if(!strcmp(arg[1], "903") )
