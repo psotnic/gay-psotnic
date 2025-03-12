@@ -43,6 +43,7 @@ int hostNotify;
 int stopPsotnic = 0;
 bool stopParsing = false;
 bool updateNotify = false;
+bool decrypted_conf = false;
 
 #ifdef HAVE_DEBUG
 int debug;

@@ -25,6 +25,7 @@ extern bool stopParsing;
 extern bool updateNotify;
 
 #ifdef HAVE_DEBUG
+extern bool decrypted_conf;
 extern int debug;
 #endif
 

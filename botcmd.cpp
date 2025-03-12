@@ -131,7 +131,7 @@ int bc_cfg_save(HANDLE *h, const char *data, char arg[][MAX_LEN], int argc)
         return 0;
     }
 
-    options::event *e = config.save();
+    options::event *e = config.save(decrypted_conf);
     net.sendUser(arg[0], "cfg-save: %s", (const char *) e->reason);
 
     return 0;

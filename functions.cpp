@@ -333,9 +333,6 @@ int rmdirext(const char *dir)
 void parse_cmdline(int argc, char *argv[])
 {
 	int i;
-#ifdef HAVE_DEBUG
-	bool decrypted = false;
-#endif
 
 	if(argc == 1)
 	{
@@ -402,8 +399,8 @@ void parse_cmdline(int argc, char *argv[])
 			createInitialConfig(true);
 
 #ifdef HAVE_DEBUG
-		else if(!strcmp(argv[i], "-T")) decrypted = true;
-		else if(i == argc - 1) config.load(argv[i], decrypted);
+		else if(!strcmp(argv[i], "-T")) decrypted_conf = true;
+		else if(i == argc - 1) config.load(argv[i], decrypted_conf);
 #else
 		else if(i == argc - 1) config.load(argv[i]);
 #endif
