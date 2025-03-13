@@ -5,7 +5,7 @@
 # WARNING! All changes made in this file will be lost!
 # 
 
-all: badrealname ads control date dccchat noautorejoin nogarbage oidentd op peak peak2 repeat spam topic uptime vctrl words
+all: badrealname ads control date dccchat nick0 noautorejoin nogarbage oidentd op peak peak2 repeat spam topic uptime vctrl words
 
 badrealname:
 	@echo [*] Compiling module badrealname
@@ -26,6 +26,10 @@ date:
 dccchat:
 	@echo [*] Compiling module dccchat
 	@g++ -o dccchat.so dccchat.cpp -shared -I .. -I ../include
+
+nick0:
+	@echo [*] Compiling module nick0
+	@g++ -o nick0.so nick0.cpp -shared -I .. -I ../include
 
 noautorejoin:
 	@echo [*] Compiling module noautorejoin
