@@ -136,6 +136,7 @@ ads
 control
 date
 dccchat
+nick0
 noautorejoin
 nogarbage
 oidentd
